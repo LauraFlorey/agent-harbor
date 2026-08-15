@@ -187,7 +187,7 @@ export async function boxStatus(cfg: AppConfig, botId: string) {
  */
 export async function provisionBox(cfg: AppConfig, botId: string, botName: string) {
   if (!boxConfigured(cfg)) {
-    throw new Error('box provider not enabled — add {"box":{"token":"…"}} to ~/.openmausbot/config.json');
+    throw new Error("box provider not enabled — add a Box API key in App Settings or set BOX_TOKEN");
   }
   const vmName = await boxNameFor(botId);
   let box = await findBox(cfg, botId);

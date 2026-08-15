@@ -116,6 +116,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
         HOME: home,
         USERPROFILE: home,
+        OMB_SECRET_STORE: "file",
         OMB_PORT: String(PORT),
       },
       stdio: ["ignore", "pipe", "pipe"],
