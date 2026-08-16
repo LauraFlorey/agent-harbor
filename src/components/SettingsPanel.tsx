@@ -43,6 +43,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "description"
         | "notifications"
         | "computer"
+        | "hostAccess"
         | "color"
         | "mascotExpression"
         | "autoApprove"
@@ -312,25 +313,77 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
           <div className="rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Computer</div>
             <div className="mt-0.5 text-[13px] text-ink-secondary">
-              Where this bot's computer runs{bot.computer ? "" : " (currently: auto)"}
+              Off until you explicitly choose a computer for this bot
             </div>
             <div className="mt-3 flex overflow-hidden rounded-lg border border-hairline/40">
-              {(["cloud", "local", "off"] as const).map((mode, i) => (
+              {(
+                [
+                  ["cloud", "Cloud"],
+                  ["vm", "Local VM"],
+                  ["local", "This computer"],
+                  ["off", "Off"],
+                ] as const
+              ).map(([mode, label], i) => (
                 <button
                   key={mode}
-                  onClick={() => patch({ computer: mode })}
+                  onClick={() => {
+                    if (
+                      mode === "local" &&
+                      bot.computer !== "local" &&
+                      !window.confirm(
+                        `Allow ${bot.name} to control this computer's desktop? The bot will be able to see the screen and operate the mouse and keyboard during its turns.`,
+                      )
+                    ) return;
+                    patch({ computer: mode });
+                  }}
                   className={cn(
                     "flex-1 py-1.5 text-[13px] capitalize",
                     i > 0 && "border-l border-hairline/40",
-                    bot.computer === mode
+                    (bot.computer ?? "off") === mode
                       ? "bg-raised text-ink"
                       : "text-ink-secondary hover:bg-raised/60 hover:text-ink",
                   )}
                 >
-                  {mode}
+                  {label}
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+            <div>
+              <div className="text-[15px] font-medium text-ink">Host files</div>
+              <div className="mt-0.5 text-[13px] text-ink-secondary">
+                {bot.hostAccess
+                  ? "Enabled: local turns start in your home folder. Provider approvals still apply."
+                  : "Off: local turns start in this bot's private Agent Harbor workspace."}
+              </div>
+            </div>
+            <button
+              role="switch"
+              aria-checked={Boolean(bot.hostAccess)}
+              aria-label="Host files"
+              onClick={() => {
+                if (
+                  !bot.hostAccess &&
+                  !window.confirm(
+                    `Allow ${bot.name} to start local turns in your home folder? This broadens file access beyond the bot's private workspace. Provider approvals still apply.`,
+                  )
+                ) return;
+                patch({ hostAccess: !bot.hostAccess });
+              }}
+              className={cn(
+                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+                bot.hostAccess ? "bg-warning" : "bg-raised",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                  bot.hostAccess ? "left-[21px]" : "left-[3px]",
+                )}
+              />
+            </button>
           </div>
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">

@@ -1,11 +1,12 @@
 // Store persistence contract: bots.json + messages-<threadId>.json are
 // the durable record — everything here must survive a process restart
 // except `busy`, which never does (no turn survives one either).
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
+import { AGENT_WORKSPACES_DIR } from "./agent-workspace.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { Store, type BotRecord } from "./store.ts";
@@ -27,6 +28,11 @@ describe("Store", () => {
     expect(messages[1].kind).toBe("options");
     expect(messages[1].card?.options.length).toBeGreaterThan(1);
     expect(bot.modelSelection).toEqual(selection());
+    expect(bot.computer).toBe("off");
+    expect(bot.hostAccess).toBe(false);
+    const workspace = join(AGENT_WORKSPACES_DIR, bot.id);
+    expect(existsSync(workspace)).toBe(true);
+    if (process.platform !== "win32") expect(statSync(workspace).mode & 0o777).toBe(0o700);
   });
 
   it("rotates colors across created bots", () => {
@@ -110,6 +116,32 @@ describe("Store", () => {
 
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.modelSelection.effort).toBe("high");
+  });
+
+  it("persists host access only after an explicit opt-in", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    expect(bot.hostAccess).toBe(false);
+
+    store.patchBot(bot.id, { hostAccess: true });
+    expect(new Store(selection).bot(bot.id)?.hostAccess).toBe(true);
+  });
+
+  it("migrates legacy implicit access to explicit safe defaults", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const botsFile = join(DATA_DIR, "bots.json");
+    const raw: BotRecord[] = JSON.parse(readFileSync(botsFile, "utf8"));
+    delete raw[0]!.computer;
+    delete raw[0]!.hostAccess;
+    rmSync(AGENT_WORKSPACES_DIR, { recursive: true, force: true });
+    writeFileSync(botsFile, JSON.stringify(raw));
+
+    const migrated = new Store(selection).bot(bot.id)!;
+    expect(migrated.computer).toBe("off");
+    expect(migrated.hostAccess).toBe(false);
+    expect(existsSync(join(AGENT_WORKSPACES_DIR, bot.id))).toBe(true);
+    expect(JSON.parse(readFileSync(botsFile, "utf8"))[0]).toMatchObject({ computer: "off", hostAccess: false });
   });
 
   it("keeps exactly one persisted Chief of Staff and supports handoff", () => {

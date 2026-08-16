@@ -192,10 +192,15 @@ describe("harness HTTP API", () => {
     const created = await api("POST", "/api/bots");
     expect(created.status).toBe(201);
     const bot = created.body.bot;
+    expect(bot).toMatchObject({ computer: "off", hostAccess: false });
 
-    const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true });
+    const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true, hostAccess: true });
     expect(patched.status).toBe(200);
-    expect(patched.body.bot).toMatchObject({ name: "Renamed", pinned: true });
+    expect(patched.body.bot).toMatchObject({ name: "Renamed", pinned: true, hostAccess: true });
+
+    const invalidHostAccess = await api("PATCH", `/api/bots/${bot.id}`, { hostAccess: "yes" });
+    expect(invalidHostAccess.status).toBe(400);
+    expect(invalidHostAccess.body.error).toContain("hostAccess");
 
     const missing = await api("PATCH", "/api/bots/does-not-exist", { name: "x" });
     expect(missing.status).toBe(404);
@@ -217,6 +222,7 @@ describe("harness HTTP API", () => {
       mascotExpression: "focused",
       autoApprove: true,
       alwaysAllow: ["Bash:git"],
+      hostAccess: true,
     });
     await api("PATCH", `/api/bots/${second.id}`, {
       name: "Scout",
@@ -247,7 +253,7 @@ describe("harness HTTP API", () => {
         },
       },
     });
-    expect(JSON.stringify(selectedExport.body)).not.toMatch(/autoApprove|alwaysAllow|modelSelection|threadId/);
+    expect(JSON.stringify(selectedExport.body)).not.toMatch(/autoApprove|alwaysAllow|hostAccess|modelSelection|threadId/);
     expect((await api("GET", "/api/bots")).body.groups).toHaveLength(roomsBeforeSelectionExport);
     expect((await api("POST", "/api/teams/export", { name: "", memberIds: [first.id] })).status).toBe(400);
     expect((await api("POST", "/api/teams/export", { name: "Empty", memberIds: [] })).status).toBe(400);
@@ -268,6 +274,7 @@ describe("harness HTTP API", () => {
       expect(imported.body.bots.map((bot: { name: string }) => bot.name)).toEqual(["Mira", "Scout"]);
       expect(imported.body.bots.every((bot: { id: string }) => ![first.id, second.id].includes(bot.id))).toBe(true);
       expect(imported.body.bots[0]).not.toHaveProperty("alwaysAllow");
+      expect(imported.body.bots[0].hostAccess).toBe(false);
       expect(imported.body.group.memberIds).toEqual(imported.body.bots.map((bot: { id: string }) => bot.id));
       expect(imported.body.group.defaultResponder).toEqual({ kind: "member", botId: imported.body.bots[1].id });
 

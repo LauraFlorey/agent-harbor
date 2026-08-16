@@ -9,6 +9,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { approvalKey, autoDecision } from "./auto-approve.ts";
+import { agentWorkingDirectory } from "./agent-workspace.ts";
 import * as box from "./box.ts";
 import * as composio from "./composio.ts";
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
@@ -729,6 +730,7 @@ async function startTurn(
   // a cloud routine borrows the instance default model, so it borrows no
   // per-bot effort either
   const effort = opts?.runOn === "cloud" ? undefined : bot.modelSelection.effort;
+  const workingDirectory = agentWorkingDirectory(bot);
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
   if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
@@ -800,7 +802,9 @@ async function startTurn(
       // tools that would fail on every call or spawn an unnecessary proxy.
       const dwebUrl = process.env.DWEB_URL?.trim();
       if (dwebUrl) integrations.dweb = { url: dwebUrl };
-      const wants = opts?.runOn === "cloud" ? "cloud" : bot.computer; // cloud routine overrides the MAUS default
+      // Legacy unset values fail closed. Host desktop control is available
+      // only after the user explicitly selects "This computer".
+      const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       const mountsCloudComputer = mountsComputerMcp || instance.driverKind === "boxAgent";
       let previewBoxId: string | null = null;
@@ -839,16 +843,14 @@ async function startTurn(
         computerKind = "local";
       }
 
-      // Cloud is also strict when explicitly selected. Auto (unset) reuses an
-      // existing cloud box, then falls back to host CUA without provisioning.
-      if ((wants === "cloud" || wants === undefined) && box.boxConfigured(cfg)) {
+      // Cloud is strict and explicit: merely having a configured box never
+      // grants a bot computer access.
+      if (wants === "cloud" && box.boxConfigured(cfg)) {
         if (!mountsCloudComputer && wants === "cloud") {
           throw new Error("this model engine cannot use computer tools — choose Claude, an ACP engine, or the Computer engine");
         }
         let b = await box.findBox(cfg, bot.id).catch(() => null);
-        // Explicit Cloud and the box-native Computer engine provision on first
-        // use. Auto remains non-surprising and only reuses an existing box.
-        if (!b && mountsCloudComputer && (wants === "cloud" || instance.driverKind === "boxAgent")) {
+        if (!b && mountsCloudComputer) {
           broadcast({ kind: "computer", botId: bot.id, state: "provisioning" });
           await box.provisionBox(cfg, bot.id, bot.name);
           b = await box.findBox(cfg, bot.id).catch(() => null);
@@ -876,15 +878,6 @@ async function startTurn(
         throw new Error("the cloud computer could not be created or reached");
       }
 
-      // Auto-only host fallback. Electron owns cua-driver/TCC attribution;
-      // the harness only reads its already-running connection descriptor.
-      if (!integrations.computer && !integrations.localComputer && wants === undefined && mountsComputerMcp) {
-        const cua = readCuaConnection();
-        if (cua) {
-          integrations.localComputer = cua;
-          computerKind = "local";
-        }
-      }
       // peer-agent comms: give a user-initiated turn the list_bots/ask_bot
       // tools. A comms-invoked turn (depth ≥ cap) gets none — hard recursion
       // stop, so the user's tokens can't be burned by a bot-to-bot loop.
@@ -926,6 +919,11 @@ async function startTurn(
         transcript,
         system:
           persona +
+          (instance.driverKind !== "boxAgent"
+            ? bot.hostAccess === true
+              ? ` The user explicitly enabled host-file access for this bot. Your working directory is ${workingDirectory}. Continue to use the normal approval flow for sensitive actions.`
+              : ` Your private working directory is ${workingDirectory}. Keep file work inside it. If work requires another host path, stop and ask the user to enable Host files in this bot's settings.`
+            : "") +
           (computerKind === "vm"
             ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
             : computerKind === "box" && instance.driverKind !== "boxAgent"
@@ -951,6 +949,7 @@ async function startTurn(
                 .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
             : ""),
         integrations,
+        ...(instance.driverKind === "boxAgent" ? {} : { cwd: workingDirectory }),
       });
       // dispatched: the rewind is spent, and the old cursors are dead
       if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
@@ -1888,6 +1887,10 @@ const server = createServer(async (req, res) => {
       if (body.autoApprove !== undefined) {
         if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
         patch.autoApprove = body.autoApprove;
+      }
+      if (body.hostAccess !== undefined) {
+        if (typeof body.hostAccess !== "boolean") return json(res, 400, { error: "hostAccess must be true or false" });
+        patch.hostAccess = body.hostAccess;
       }
       if (body.approvePeerComms !== undefined) {
         if (typeof body.approvePeerComms !== "boolean") {

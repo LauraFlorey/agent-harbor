@@ -5,6 +5,7 @@
 import { readFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "./atomic.js";
+import { agentWorkspace } from "./agent-workspace.js";
 import { peerAllowKey } from "./peer-approval-key.js";
 import { DATA_DIR } from "./config.js";
 import { newId } from "./contracts.js";
@@ -128,8 +129,21 @@ export class Store {
         let botsMigrated = false;
         let chiefSeen = false;
         let groupsMigrated = false;
-        for (const b of this.bots)
+        for (const b of this.bots) {
             b.busy = false;
+            // Pre-isolation releases used an unset computer value as an implicit
+            // host/cloud "Auto" grant. Migrate that ambiguity to explicit Off,
+            // and make the new host-files permission explicit too.
+            if (b.computer === undefined) {
+                b.computer = "off";
+                botsMigrated = true;
+            }
+            if (typeof b.hostAccess !== "boolean") {
+                b.hostAccess = false;
+                botsMigrated = true;
+            }
+            agentWorkspace(b.id);
+        }
         for (const b of this.bots) {
             if (!b.chiefOfStaff)
                 continue;
@@ -403,8 +417,11 @@ export class Store {
             unread: false,
             modelSelection: profile.modelSelection ?? this.defaultSelection(),
             resumeCursors: {},
+            computer: "off",
+            hostAccess: false,
             createdAt: Date.now(),
         };
+        agentWorkspace(bot.id);
         bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];
         this.bots.unshift(bot);
         this.saveBots();
