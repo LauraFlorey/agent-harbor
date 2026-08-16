@@ -5,13 +5,16 @@
 // ones. Without this, an interrupted writeFileSync produces half-written JSON
 // that fails to parse on next boot and is silently treated as empty state.
 import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fchmodSync, fsyncSync, openSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 
-export function writeFileAtomic(path: string, data: string): void {
+export function writeFileAtomic(path: string, data: string, mode = 0o600): void {
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let fd: number | null = null;
   try {
-    fd = openSync(tmp, "w");
+    fd = openSync(tmp, "wx", mode);
+    // The creation mask may be stricter or looser than the app's contract.
+    // Set the exact private mode on the open inode before it becomes visible.
+    fchmodSync(fd, mode);
     writeFileSync(fd, data);
     fsyncSync(fd);
     closeSync(fd);

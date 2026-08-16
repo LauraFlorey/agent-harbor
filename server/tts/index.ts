@@ -1,6 +1,5 @@
-// Voice, wired to config. The ElevenLabs API lives in elevenlabs.ts; this
-// file is only the part that reads ~/.openmausbot/config.json and decides
-// whether there is a voice at all.
+// Voice, wired to the in-memory config assembled from ordinary settings and
+// the platform secret store. The ElevenLabs API lives in elevenlabs.ts.
 import type { AppConfig } from "../config.ts";
 import * as elevenlabs from "./elevenlabs.ts";
 

@@ -12,6 +12,7 @@ export function appendNative(threadId: string, entry: { dir: "in" | "out"; sourc
     appendFileSync(
       join(NATIVE_DIR, `${threadId}.ndjson`),
       JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n",
+      { mode: 0o600 },
     );
   } catch {
     /* never let logging break a run */

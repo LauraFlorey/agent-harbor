@@ -10,6 +10,8 @@ import { afterAll } from "vitest";
 const home = mkdtempSync(join(tmpdir(), "omb-test-home-"));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
+// Tests must never read or write the developer's real login keychain.
+process.env.OMB_SECRET_STORE = "file";
 
 afterAll(async () => {
   // Windows holds a directory that is a live process's cwd, and a

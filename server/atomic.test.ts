@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,17 @@ describe("writeFileAtomic", () => {
     const p = join(dir, "x.json");
     writeFileAtomic(p, '{"a":1}');
     expect(readFileSync(p, "utf8")).toBe('{"a":1}');
+  });
+
+  it.skipIf(process.platform === "win32")("forces private permissions regardless of the process mask", () => {
+    const p = join(dir, "private.json");
+    const previous = process.umask(0);
+    try {
+      writeFileAtomic(p, "secret");
+    } finally {
+      process.umask(previous);
+    }
+    expect(statSync(p).mode & 0o777).toBe(0o600);
   });
 
   it("replaces existing contents in full", () => {

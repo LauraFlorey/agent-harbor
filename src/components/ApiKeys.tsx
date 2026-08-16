@@ -1,6 +1,6 @@
-// Paste-a-key rows for PUT /api/config. The server persists to
-// ~/.openmausbot/config.json and hot-reloads the provider fleet; secrets
-// are write-only — GET /api/config returns configured flags, never values.
+// Paste-a-key rows for PUT /api/config. The server persists credentials in
+// the platform secret store and hot-reloads the provider fleet; secrets are
+// write-only — GET /api/config returns configured flags, never values.
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type ConfigStatus } from "@/state/store";

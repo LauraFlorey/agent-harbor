@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { DATA_DIR } from "./config.ts";
+import { writeFileAtomic } from "./atomic.ts";
 import type { RuntimeEvent } from "./contracts.ts";
 
 export type RoutineSchedule =
@@ -485,9 +486,11 @@ export class RoutineManager {
   }
 
   private save() {
-    mkdirSync(dirname(this.file), { recursive: true });
-    const temp = `${this.file}.tmp`;
-    writeFileSync(temp, JSON.stringify({ version: 1, routines: this.routines, runs: this.runs } satisfies RoutineFile, null, 2));
-    renameSync(temp, this.file);
+    mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
+    writeFileAtomic(
+      this.file,
+      JSON.stringify({ version: 1, routines: this.routines, runs: this.runs } satisfies RoutineFile, null, 2),
+      0o600,
+    );
   }
 }

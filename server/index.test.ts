@@ -5,7 +5,7 @@
 // the shadow-instance behavior end to end while it's at it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +61,7 @@ beforeAll(async () => {
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       HOME: home,
       USERPROFILE: home,
+      OMB_SECRET_STORE: "file",
       OMB_PORT: String(PORT),
       OMB_BOX_API: `http://127.0.0.1:${boxStubPort}`,
       OMB_STATIC_DIR: staticDir,
@@ -263,6 +264,8 @@ describe("harness HTTP API", () => {
     const after = await api("GET", "/api/config");
     expect(after.body.box).toEqual({ configured: true });
     expect(JSON.stringify(after.body)).not.toContain("box_good");
+    expect(readFileSync(join(home, ".openmausbot", "config.json"), "utf8")).not.toContain("box_good");
+    expect(readFileSync(join(home, ".openmausbot", "secrets.json"), "utf8")).toContain("box_good");
 
     const nothing = await api("PUT", "/api/config", {});
     expect(nothing.status).toBe(400);

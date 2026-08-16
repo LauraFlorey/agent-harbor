@@ -90,6 +90,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
         ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
         HOME: home,
         USERPROFILE: home,
+        OMB_SECRET_STORE: "file",
         OMB_PORT: String(PORT),
       },
       stdio: ["ignore", "pipe", "pipe"],

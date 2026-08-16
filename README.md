@@ -116,6 +116,7 @@ messaging app — your agents behave like contacts.
 ### 🔑 Keys once, everything lights up
 
 Paste credentials in App Settings — they persist locally and the provider fleet hot-reloads instantly.
+On macOS they are stored in Keychain; Windows and Linux use a private mode-`0600` fallback file.
 Secrets are write-only: the UI only ever sees "configured" flags.
 
 <img src="docs/screenshots/app-settings.png" alt="App-level settings with API keys" width="100%">
