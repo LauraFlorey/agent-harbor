@@ -101,7 +101,7 @@ export const GrokDriver = {
         const sendTurn = async (turn) => {
             const { threadId } = turn;
             if (!apiKey)
-                throw new Error(`no xAI key — set ${config.apiKeyEnv} or config.json xai.key`);
+                throw new Error(`no xAI key — add it in App Settings or set ${config.apiKeyEnv}`);
             if (active.has(threadId))
                 throw new Error("a turn is already running on this thread");
             const turnId = newId();
@@ -156,7 +156,7 @@ export const GrokDriver = {
             if (!apiKey) {
                 return {
                     state: "unavailable",
-                    reason: `no xAI API key — add {"xai":{"key":"xai-…"}} to ~/.openmausbot/config.json or set ${config.apiKeyEnv}`,
+                    reason: `no xAI API key — add it in App Settings or set ${config.apiKeyEnv}`,
                 };
             }
             return { state: "available", authenticated: true, version: null };

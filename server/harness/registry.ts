@@ -104,6 +104,7 @@ export class ProviderRegistry {
         const inst = entry.live;
         let snapshot: ProviderSnapshot;
         try {
+          await inst.refreshModels?.();
           snapshot = await inst.snapshot();
         } catch (e) {
           snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
@@ -117,6 +118,7 @@ export class ProviderRegistry {
           capabilities: {
             computerMcp: inst.adapter.capabilities.computerMcp === true,
             agentsMcp: inst.adapter.capabilities.agentsMcp === true,
+            effortLevels: inst.adapter.capabilities.effortLevels,
           },
           install: this.driversByKind.get(inst.driverKind)?.install,
         };

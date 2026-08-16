@@ -10,12 +10,42 @@ export type InstanceId = string;
 export type ThreadId = string;
 export type TurnId = string;
 
+export type ProviderErrorCode =
+  | "missing_cli"
+  | "invalid_credentials"
+  | "inactive_subscription"
+  | "quota_or_region_restriction"
+  | "upstream_outage"
+  | "model_catalog_outage";
+
+export class ProviderError extends Error {
+  readonly code: ProviderErrorCode;
+
+  constructor(code: ProviderErrorCode, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "ProviderError";
+    this.code = code;
+  }
+}
+
+/** Reasoning-effort levels, ascending. A union of everything any engine
+ * accepts; each driver declares the subset its CLI will take. */
+export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** Narrow untrusted API/config input before it becomes a model selection. */
+export function isEffortLevel(value: unknown): value is EffortLevel {
+  return typeof value === "string" && (EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
 // ── model selection ────────────────────────────────────────────────────
 // "Which model" is a data value carried on the request, never a service
 // binding (upstream ModelSelectionWire). instanceId is the routing key.
 export interface ModelSelection {
   instanceId: InstanceId;
   model: string;
+  /** Optional: no effort means no flag, and the CLI keeps its own default. */
+  effort?: EffortLevel;
 }
 
 // ── instance configuration envelope ────────────────────────────────────
@@ -92,6 +122,7 @@ export interface SendTurnInput {
   threadId: ThreadId;
   text: string;
   model?: string;
+  effort?: EffortLevel;
   resumeCursor?: unknown;
   /** Prior turns for transcript-replay providers (API-backed drivers). */
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
@@ -108,6 +139,9 @@ export interface SendTurnInput {
      * through the harness so this bot can message other bots. The harness
      * owns turns, permissions, and recursion limits; the proxy only forwards. */
     agents?: { command: string; args: string[]; env: Record<string, string> };
+    /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
+     * opencode model access as tools. url is the dweb HTTP base. */
+    dweb?: { url: string };
   };
   cwd?: string;
 }
@@ -129,6 +163,14 @@ export interface ProviderAdapter {
      * told it has a computer whose tools its driver cannot mount — it
      * burns turns hunting for tools that aren't there. */
     computerMcp?: boolean;
+    /** True when the driver mounts turn.integrations.composio (the user's
+     * connected apps). Same rule again: a key in the config says the user
+     * HAS those connections, not that this driver can reach them. */
+    composioMcp?: boolean;
+    /** Effort levels this driver can pass to its CLI, ascending. Absent =
+     * the driver cannot set effort, so the app never offers the control —
+     * same rule as computerMcp: never show a knob the driver cannot turn. */
+    effortLevels?: readonly EffortLevel[];
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;
@@ -195,6 +237,8 @@ export interface ProviderInstance {
   readonly displayName: string | undefined;
   readonly enabled: boolean;
   readonly models: ModelCatalog;
+  /** Refresh a live catalog without recreating the provider instance. */
+  readonly refreshModels?: () => Promise<void>;
   readonly adapter: ProviderAdapter;
   snapshot(): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */

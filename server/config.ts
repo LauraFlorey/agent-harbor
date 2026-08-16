@@ -15,6 +15,8 @@ export interface AppConfig {
    * catalog with official logos in the plugins marketplace. */
   composio?: { key?: string; apiKey?: string; url?: string };
   box?: { token?: string };
+  /** OpenCode Go key; persisted write-only and passed only to its child. */
+  opencodeGo?: { apiKey?: string };
   /** Voice (ElevenLabs). `key` is the credential and is never echoed back;
    * `voice` is the chosen voice id, which is a setting, not a secret. */
   tts?: { key?: string; voice?: string };
@@ -32,7 +34,7 @@ export const NATIVE_DIR = join(DATA_DIR, "native");
 
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
-const MANAGED_TOP_LEVEL = /^(config|secrets|bots|groups|routines)\.json$|^messages-[\w-]+\.json$/;
+const MANAGED_TOP_LEVEL = /^(config|secrets|bots|groups|routines|webhooks)\.json$|^messages-[\w-]+\.json$/;
 
 function secureManagedFile(path: string) {
   const stat = lstatSync(path);
@@ -71,12 +73,13 @@ export function ensureDirs() {
   secureExistingState();
 }
 
-type ConfigSection = "xai" | "composio" | "box" | "tts";
+type ConfigSection = "xai" | "composio" | "box" | "opencodeGo" | "tts";
 const SECRET_FIELDS: Array<{ section: ConfigSection; field: string; id: SecretId; env?: string }> = [
   { section: "xai", field: "key", id: "xai.key", env: "XAI_API_KEY" },
   { section: "composio", field: "key", id: "composio.key", env: "COMPOSIO_KEY" },
   { section: "composio", field: "apiKey", id: "composio.apiKey", env: "COMPOSIO_API_KEY" },
   { section: "box", field: "token", id: "box.token", env: "BOX_TOKEN" },
+  { section: "opencodeGo", field: "apiKey", id: "opencodeGo.apiKey", env: "OPENCODE_API_KEY" },
   { section: "tts", field: "key", id: "tts.key", env: "OMB_TTS_KEY" },
 ];
 
@@ -125,7 +128,9 @@ export function loadConfig(): AppConfig {
     /* first run — env fallbacks below */
   }
   const secrets = createPlatformSecretStore(DATA_DIR);
-  if (migrateLegacySecrets(disk, secrets)) writeFileAtomic(path, JSON.stringify(disk, null, 2), PRIVATE_FILE_MODE);
+  if (migrateLegacySecrets(disk, secrets)) {
+    writeFileAtomic(path, JSON.stringify(disk, null, 2), { mode: PRIVATE_FILE_MODE });
+  }
 
   const cfg = disk as AppConfig;
   const values = new Map(SECRET_FIELDS.map((descriptor) => [descriptor.id, storedSecret(secrets, descriptor)]));
@@ -136,6 +141,7 @@ export function loadConfig(): AppConfig {
     apiKey: values.get("composio.apiKey"),
   };
   cfg.box = { ...cfg.box, token: values.get("box.token") };
+  cfg.opencodeGo = { ...cfg.opencodeGo, apiKey: values.get("opencodeGo.apiKey") };
   cfg.tts = { ...cfg.tts, key: values.get("tts.key") };
   return cfg;
 }
@@ -162,13 +168,13 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     else secrets.delete(descriptor.id);
     delete section[descriptor.field];
   }
-  for (const key of ["xai", "composio", "box", "tts", "profile"] as const) {
+  for (const key of ["xai", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
     const section = objectSection(sanitized[key]);
     if (section && Object.keys(section).length) {
       disk[key] = { ...objectSection(disk[key]), ...section };
     }
   }
-  writeFileAtomic(p, JSON.stringify(disk, null, 2), PRIVATE_FILE_MODE);
+  writeFileAtomic(p, JSON.stringify(disk, null, 2), { mode: 0o600 });
 }
 
 // Default fleet: one instance per built-in driver (upstream
@@ -195,15 +201,20 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
       : {
           grok: { driver: "grokAgent" },
           kimi: { driver: "kimiAgent" },
+          droid: { driver: "droidAgent" },
           claude: { driver: "claudeAgent" },
           codex: { driver: "codex" },
           antigravity: { driver: "antigravityAgent" },
+          opencodeGo: { driver: "opencodeGo" },
           computer: { driver: "boxAgent" },
         };
   for (const entry of Object.values(map)) {
     entry.environment = {
       ...(cfg.xai?.key ? { XAI_API_KEY: cfg.xai.key } : {}),
       ...(cfg.box?.token ? { BOX_TOKEN: cfg.box.token } : {}),
+      ...(entry.driver === "opencodeGo" && cfg.opencodeGo?.apiKey
+        ? { OPENCODE_API_KEY: cfg.opencodeGo.apiKey }
+        : {}),
       ...entry.environment,
     };
   }

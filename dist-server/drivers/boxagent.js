@@ -54,7 +54,7 @@ export const BoxAgentDriver = {
             const computer = turn.integrations?.computer;
             const boxId = computer && (!computer.kind || computer.kind === "box") ? computer.boxId : undefined;
             if (!token)
-                throw new Error('box not configured — add {"box":{"token":"…"}} to ~/.openmausbot/config.json');
+                throw new Error("box not configured — add a Box API key in App Settings or set BOX_TOKEN");
             if (!boxId) {
                 throw new Error("this bot has no computer yet — open the Computer panel and provision one");
             }
@@ -199,7 +199,7 @@ export const BoxAgentDriver = {
         };
         const snapshot = async () => {
             if (!token) {
-                return { state: "unavailable", reason: 'no Box token — add {"box":{"token":"…"}} to ~/.openmausbot/config.json' };
+                return { state: "unavailable", reason: "no Box token — add it in App Settings or set BOX_TOKEN" };
             }
             try {
                 await api("/me");

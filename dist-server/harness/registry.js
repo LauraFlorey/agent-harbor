@@ -72,6 +72,7 @@ export class ProviderRegistry {
             const inst = entry.live;
             let snapshot;
             try {
+                await inst.refreshModels?.();
                 snapshot = await inst.snapshot();
             }
             catch (e) {
@@ -86,6 +87,7 @@ export class ProviderRegistry {
                 capabilities: {
                     computerMcp: inst.adapter.capabilities.computerMcp === true,
                     agentsMcp: inst.adapter.capabilities.agentsMcp === true,
+                    effortLevels: inst.adapter.capabilities.effortLevels,
                 },
                 install: this.driversByKind.get(inst.driverKind)?.install,
             };

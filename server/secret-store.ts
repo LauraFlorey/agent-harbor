@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
 
-export const SECRET_IDS = ["xai.key", "composio.key", "composio.apiKey", "box.token", "tts.key"] as const;
+export const SECRET_IDS = [
+  "xai.key",
+  "composio.key",
+  "composio.apiKey",
+  "box.token",
+  "opencodeGo.apiKey",
+  "tts.key",
+] as const;
 export type SecretId = (typeof SECRET_IDS)[number];
 
 export interface SecretStore {
@@ -61,9 +68,9 @@ export function createKeychainSecretStore(
     set(id, value) {
       // `security` documents a trailing -w as the safe, prompted form. Its
       // prompt consumes stdin here; the credential is never a process arg.
+      // New and updated generic-password items both request confirmation.
       const result = runner(
         ["add-generic-password", "-a", id, "-s", service, "-U", "-w"],
-        // New and updated generic-password items both request confirmation.
         `${value}\n${value}\n`,
       );
       if (result.status !== 0 || result.error) throw commandError("write", result);
@@ -90,7 +97,7 @@ export function createFileSecretStore(dataDir: string): SecretStore {
     }
   };
   const write = (value: Partial<Record<SecretId, string>>) =>
-    writeFileAtomic(file, JSON.stringify(value, null, 2), 0o600);
+    writeFileAtomic(file, JSON.stringify(value, null, 2), { mode: 0o600 });
 
   return {
     get(id) {
