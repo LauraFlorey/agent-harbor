@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildAgentEnvironment } from "../agent-environment.ts";
 import { DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
@@ -65,11 +66,9 @@ export function claudeSignedIn(
  * claiming an API-key login that the turn itself would deliberately remove.
  */
 function claudeEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.CLAUDECODE;
-  delete env.CLAUDE_CODE_ENTRYPOINT;
-  return env;
+  return buildAgentEnvironment({
+    overrides: { PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" },
+  });
 }
 
 const DRIVER_KIND = "claudeAgent";
@@ -592,7 +591,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           execCli(
             config.cli,
             ["-p", prompt, "--model", "claude-haiku-4-5", "--output-format", "text"],
-            { timeout: 60_000, env: { ...process.env, PATH: augmentedPath() } },
+            { timeout: 60_000, env: claudeEnvironment() },
             (err, stdout) => (err ? reject(err) : resolve(stdout.trim())),
           );
         }),

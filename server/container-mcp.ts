@@ -2,6 +2,7 @@
 // Local VM. This process defines no tools and parses no MCP messages.
 import { spawn } from "node:child_process";
 
+import { buildAgentEnvironment } from "./agent-environment.ts";
 import { augmentedPath } from "./env-path.ts";
 
 const [runtime, container, socket] = process.argv.slice(2);
@@ -36,7 +37,7 @@ const child = spawn(
     socket,
   ],
   {
-    env: { ...process.env, PATH: augmentedPath() },
+    env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }),
     stdio: ["pipe", "pipe", "pipe"],
   },
 );

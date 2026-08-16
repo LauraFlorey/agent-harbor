@@ -24,7 +24,7 @@ posixOnly("Local VM Cua MCP bridge", () => {
     const fakeDocker = join(bin, "docker");
     await writeFile(
       fakeDocker,
-      "#!/bin/sh\nprintf 'ARGS:%s\\n' \"$*\" >&2\ncat\n",
+      "#!/bin/sh\nprintf 'ARGS:%s\\n' \"$*\" >&2\nprintf 'LEAK:%s:%s\\n' \"$DATABASE_URL\" \"$AWS_SECRET_ACCESS_KEY\" >&2\ncat\n",
       { mode: 0o700 },
     );
     await chmod(fakeDocker, 0o700);
@@ -35,7 +35,13 @@ posixOnly("Local VM Cua MCP bridge", () => {
         process.execPath,
         [fileURLToPath(new URL("./container-mcp.ts", import.meta.url)), "docker", CONTAINER, CUA_SOCKET],
         {
-          env: { ...process.env, OMB_EXTRA_PATH: bin, NODE_NO_WARNINGS: "1" },
+          env: {
+            ...process.env,
+            OMB_EXTRA_PATH: bin,
+            NODE_NO_WARNINGS: "1",
+            DATABASE_URL: "postgres://should-not-leak",
+            AWS_SECRET_ACCESS_KEY: "aws-should-not-leak",
+          },
           stdio: ["pipe", "pipe", "pipe"],
         },
       );
@@ -55,5 +61,6 @@ posixOnly("Local VM Cua MCP bridge", () => {
         `-e CUA_DRIVER_RS_TELEMETRY_ENABLED=0 ${CONTAINER} ` +
         `${CUA_EXECUTABLE} mcp --socket ${CUA_SOCKET}`,
     );
+    expect(result.stderr).toContain("LEAK::");
   });
 });

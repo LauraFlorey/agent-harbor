@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { buildAgentEnvironment } from "./agent-environment.js";
 import { augmentedPath } from "./env-path.js";
 import { DATA_DIR } from "./config.js";
 const run = promisify(execFile);
@@ -133,7 +134,7 @@ async function sh(cmd, args, timeout = 8000) {
         timeout,
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, PATH: augmentedPath() },
+        env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }),
     });
     return { stdout };
 }

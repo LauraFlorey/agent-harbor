@@ -1,6 +1,7 @@
 // Transparent stdio bridge into Cua Driver's official MCP server inside the
 // Local VM. This process defines no tools and parses no MCP messages.
 import { spawn } from "node:child_process";
+import { buildAgentEnvironment } from "./agent-environment.js";
 import { augmentedPath } from "./env-path.js";
 const [runtime, container, socket] = process.argv.slice(2);
 if (!runtime || !["docker", "podman", "container"].includes(runtime)) {
@@ -30,7 +31,7 @@ const child = spawn(runtime, [
     "--socket",
     socket,
 ], {
-    env: { ...process.env, PATH: augmentedPath() },
+    env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }),
     stdio: ["pipe", "pipe", "pipe"],
 });
 process.stdin.pipe(child.stdin);

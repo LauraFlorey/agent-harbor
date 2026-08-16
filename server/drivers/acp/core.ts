@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { buildAgentEnvironment } from "../../agent-environment.ts";
 
 import type {
   DriverCreateInput,
@@ -154,15 +155,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
     async create(input: DriverCreateInput<AcpConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
       const childEnv = () => {
-        const env: Record<string, string | undefined> = {
-          ...process.env,
-          ...input.environment,
-          PATH: augmentedPath(),
-        };
+        const explicit: Record<string, string | undefined> = { ...input.environment };
         const allowedCredentials = new Set(support.credentialEnv ?? []);
         for (const key of PROVIDER_CREDENTIAL_ENV) {
-          if (!allowedCredentials.has(key)) delete env[key];
+          if (!allowedCredentials.has(key)) delete explicit[key];
         }
+        const env = buildAgentEnvironment({
+          overrides: { ...explicit, PATH: augmentedPath() },
+        });
         support.transformEnv?.(env, config);
         return env;
       };

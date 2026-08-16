@@ -14,6 +14,7 @@ import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.t
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { buildAgentEnvironment } from "../agent-environment.ts";
 import { DATA_DIR } from "../config.ts";
 import { augmentedPath } from "../env-path.ts";
 
@@ -187,7 +188,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       if (turn.model) args.push("--model", turn.model);
       if (resumeCursor) args.push("--conversation", resumeCursor);
 
-      const env: Record<string, string | undefined> = { ...process.env, PATH: augmentedPath() };
+      const env = buildAgentEnvironment({ overrides: { PATH: augmentedPath() } });
 
       // spawnCli resolves npm .cmd shims / shebang scripts on Windows and
       // owns the process-group vs windowsHide difference (see procs.ts)
@@ -319,7 +320,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
     const snapshot = async (): Promise<ProviderSnapshot> => {
       const version = await new Promise<string | null>((resolve) => {
-        execCli(config.cli, ["--version"], { timeout: 8000, env: { ...process.env, PATH: augmentedPath() } }, (err, stdout) =>
+        execCli(config.cli, ["--version"], { timeout: 8000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) }, (err, stdout) =>
           resolve(err ? null : stdout.trim()),
         );
       });
@@ -362,7 +363,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           execCli(
             config.cli,
             ["-p", prompt, "--output-format", "text", "--model", "gemini-3.6-flash-low"],
-            { timeout: 60_000, env: { ...process.env, PATH: augmentedPath() } },
+            { timeout: 60_000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) },
             (err, stdout) => (err ? reject(err) : resolve(stdout.trim())),
           );
         }),

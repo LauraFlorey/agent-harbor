@@ -53,6 +53,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.FAKE_CODEX_MODE;
     delete process.env.FAKE_CODEX_DUMP;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    delete process.env.DEPLOY_TOKEN;
     recorder?.stop();
     await instance?.dispose();
     rmSync(scratch, { recursive: true, force: true });
@@ -63,6 +65,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     const dump = join(scratch, "dump.json");
     process.env.FAKE_CODEX_DUMP = dump;
     process.env.OPENAI_API_KEY = "sk-should-not-leak";
+    process.env.AWS_SECRET_ACCESS_KEY = "aws-should-not-leak";
+    process.env.DEPLOY_TOKEN = "deploy-should-not-leak";
 
     const { turnId } = await instance.adapter.sendTurn({
       threadId: "t-happy",
@@ -95,6 +99,8 @@ describe("CodexDriver turns (fake app-server)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.env.OPENAI_API_KEY).toBeUndefined();
+    expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(seen.env.DEPLOY_TOKEN).toBeUndefined();
     const methods = seen.calls.map((c: { method: string }) => c.method);
     expect(methods).toEqual(["initialize", "initialized", "thread/start", "turn/start"]);
     // persona rides in front of the prompt text — codex has no system slot

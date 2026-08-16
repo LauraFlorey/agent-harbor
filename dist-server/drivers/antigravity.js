@@ -13,6 +13,7 @@
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { buildAgentEnvironment } from "../agent-environment.js";
 import { DATA_DIR } from "../config.js";
 import { augmentedPath } from "../env-path.js";
 import { newEventId, newId } from "../contracts.js";
@@ -163,7 +164,7 @@ export const AntigravityDriver = {
                 args.push("--model", turn.model);
             if (resumeCursor)
                 args.push("--conversation", resumeCursor);
-            const env = { ...process.env, PATH: augmentedPath() };
+            const env = buildAgentEnvironment({ overrides: { PATH: augmentedPath() } });
             // spawnCli resolves npm .cmd shims / shebang scripts on Windows and
             // owns the process-group vs windowsHide difference (see procs.ts)
             const child = spawnCli(config.cli, args, {
@@ -289,7 +290,7 @@ export const AntigravityDriver = {
         };
         const snapshot = async () => {
             const version = await new Promise((resolve) => {
-                execCli(config.cli, ["--version"], { timeout: 8000, env: { ...process.env, PATH: augmentedPath() } }, (err, stdout) => resolve(err ? null : stdout.trim()));
+                execCli(config.cli, ["--version"], { timeout: 8000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) }, (err, stdout) => resolve(err ? null : stdout.trim()));
             });
             if (!version)
                 return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
@@ -325,7 +326,7 @@ export const AntigravityDriver = {
                 },
             },
             generateText: (prompt) => new Promise((resolve, reject) => {
-                execCli(config.cli, ["-p", prompt, "--output-format", "text", "--model", "gemini-3.6-flash-low"], { timeout: 60_000, env: { ...process.env, PATH: augmentedPath() } }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim())));
+                execCli(config.cli, ["-p", prompt, "--output-format", "text", "--model", "gemini-3.6-flash-low"], { timeout: 60_000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim())));
             }),
             dispose: async () => {
                 for (const { stop } of active.values())

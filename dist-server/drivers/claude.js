@@ -13,6 +13,7 @@ import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildAgentEnvironment } from "../agent-environment.js";
 import { DATA_DIR } from "../config.js";
 import { augmentedPath } from "../env-path.js";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.js";
@@ -47,11 +48,9 @@ export function claudeSignedIn(cli, env, run = execCli) {
  * claiming an API-key login that the turn itself would deliberately remove.
  */
 function claudeEnvironment() {
-    const env = { ...process.env, PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" };
-    delete env.ANTHROPIC_API_KEY;
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-    return env;
+    return buildAgentEnvironment({
+        overrides: { PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" },
+    });
 }
 const DRIVER_KIND = "claudeAgent";
 // model catalog ported from upstream packages/contracts/src/model.ts
@@ -542,7 +541,7 @@ export const ClaudeDriver = {
                 },
             },
             generateText: (prompt) => new Promise((resolve, reject) => {
-                execCli(config.cli, ["-p", prompt, "--model", "claude-haiku-4-5", "--output-format", "text"], { timeout: 60_000, env: { ...process.env, PATH: augmentedPath() } }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim())));
+                execCli(config.cli, ["-p", prompt, "--model", "claude-haiku-4-5", "--output-format", "text"], { timeout: 60_000, env: claudeEnvironment() }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim())));
             }),
             dispose: async () => {
                 for (const { stop } of active.values())
