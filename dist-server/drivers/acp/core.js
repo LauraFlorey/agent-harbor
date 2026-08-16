@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.js";
+import { buildAgentEnvironment } from "../../agent-environment.js";
 import { newEventId, newId } from "../../contracts.js";
 import { computerProxyEnv } from "../../container-computer.js";
 import { augmentedPath } from "../../env-path.js";
@@ -68,16 +69,15 @@ export function createAcpDriver(support) {
         async create(input) {
             const { instanceId, config } = input;
             const childEnv = () => {
-                const env = {
-                    ...process.env,
-                    ...input.environment,
-                    PATH: augmentedPath(),
-                };
+                const explicit = { ...input.environment };
                 const allowedCredentials = new Set(support.credentialEnv ?? []);
                 for (const key of PROVIDER_CREDENTIAL_ENV) {
                     if (!allowedCredentials.has(key))
-                        delete env[key];
+                        delete explicit[key];
                 }
+                const env = buildAgentEnvironment({
+                    overrides: { ...explicit, PATH: augmentedPath() },
+                });
                 support.transformEnv?.(env, config);
                 return env;
             };

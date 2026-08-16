@@ -4,7 +4,8 @@
 //
 // The fake CLI is a shebang script Windows cannot exec directly;
 // spawnCli resolves it to `node <script>`, so these run everywhere.
-import { chmodSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -45,6 +46,7 @@ describe("Antigravity decodeConfig", () => {
 describe("Antigravity turns (fake CLI)", () => {
   let instance: ProviderInstance;
   let recorder: EventRecorder;
+  let scratch: string;
 
   const create = async () => {
     instance = await AntigravityDriver.create({
@@ -60,11 +62,16 @@ describe("Antigravity turns (fake CLI)", () => {
   beforeEach(() => {
     ensureDirs();
     chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-agy-test-"));
   });
 
   afterEach(async () => {
     recorder?.stop();
     await instance?.dispose();
+    delete process.env.FAKE_AGY_DUMP;
+    delete process.env.DATABASE_URL;
+    delete process.env.GH_TOKEN;
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   it("normalizes a full print-mode turn into the canonical event sequence", async () => {
@@ -101,6 +108,21 @@ describe("Antigravity turns (fake CLI)", () => {
     const done = recorder.events.at(-1)!;
     expect(done).toMatchObject({ type: "turn.completed", ok: true });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
+  });
+
+  it("does not inherit unrelated parent credentials", async () => {
+    await create();
+    const dump = join(scratch, "env.json");
+    process.env.FAKE_AGY_DUMP = dump;
+    process.env.DATABASE_URL = "postgres://should-not-leak";
+    process.env.GH_TOKEN = "gh-should-not-leak";
+
+    await instance.adapter.sendTurn({ threadId: "t-env", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.env.DATABASE_URL).toBeUndefined();
+    expect(seen.env.GH_TOKEN).toBeUndefined();
   });
 
   it("rejects respondToRequest — no interactive permission channel", async () => {

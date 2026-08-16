@@ -14,6 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { buildAgentEnvironment } from "./agent-environment.ts";
 import { augmentedPath } from "./env-path.ts";
 import { DATA_DIR } from "./config.ts";
 
@@ -149,7 +150,7 @@ async function sh(cmd: string, args: string[], timeout = 8000): Promise<{ stdout
     timeout,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, PATH: augmentedPath() },
+    env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }),
   });
   return { stdout };
 }

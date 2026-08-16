@@ -18,5 +18,9 @@ response as soon as possible, normally within a few days.
 - Agents run real CLIs (`claude`, `codex`) with the user's own privileges, and the permission broker
   is the consent layer for risky actions. Bypasses of the broker (approving without a user decision,
   spoofing the broker socket) are vulnerabilities.
+- Agent and container subprocesses start from a small operating-system environment allowlist rather
+  than inheriting the harness environment. Provider credentials and helper configuration must be
+  supplied explicitly for the subprocess that needs them. Accidental inheritance of unrelated
+  provider keys, database URLs, deployment tokens, or loader-injection variables is a vulnerability.
 - Spawning must never route user-influenced strings through a shell. Report any `shell: true` /
   `cmd.exe` string-building you find.
