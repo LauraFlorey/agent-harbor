@@ -23,7 +23,7 @@ import {
 import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
-import type { RuntimeEvent } from "./contracts.ts";
+import { isEffortLevel, type RuntimeEvent } from "./contracts.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
@@ -42,6 +42,8 @@ import {
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import { readCuaConnection } from "./local-computer.ts";
+import { LocalVmIdleTimer } from "./local-vm-idle.ts";
+import { LocalVmLease } from "./local-vm-lease.ts";
 import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -103,7 +105,7 @@ function agentsIntegration(botId: string, threadId: string, depth: number) {
 /** Run a turn on `targetBotId` and resolve with its assistant text — the
  * synchronous half of ask_bot. Subscribes to the bus, folds assistant_text
  * for that thread, resolves on turn.completed (or a 4-min ceiling). */
-function askBotAndWait(targetBotId: string, message: string, depth: number): Promise<string> {
+function askBotAndWait(targetBotId: string, message: string, depth: number, fromBotId?: string): Promise<string> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve("(no such bot)");
   const threadId = target.threadId;
@@ -126,7 +128,10 @@ function askBotAndWait(targetBotId: string, message: string, depth: number): Pro
       }
     });
     const timer = setTimeout(() => finish(text || "(timed out waiting for the bot to reply)"), 4 * 60_000);
-    startTurn(targetBotId, message, { commsDepth: depth + 1 }).catch((err) =>
+    startTurn(targetBotId, message, {
+      commsDepth: depth + 1,
+      unattended: isUnattended(fromBotId),
+    }).catch((err) =>
       finish(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
     );
   });
@@ -290,14 +295,85 @@ function notify(notification: Notification | null) {
 // Group threads: the fold needs to know WHO is talking — the turn engine
 // records the active member here before dispatching its turn.
 const groupSpeakers = new Map<string, { botId: string; name: string; color: string }>();
+
+// Bots currently working with nobody at the keyboard — a webhook turn, or a
+// turn a webhook-driven bot handed to a teammate. Auto mode is a decision
+// someone made for turns they were present for, so these don't inherit it:
+// the guard behind auto mode is a pattern list, not a security boundary, and
+// it must not stand in for a human at 3am.
+//
+// Keyed by BOT rather than thread because a bot runs one turn at a time, so
+// the identity is exact, and because the peer-comms paths know who is asking
+// but not always from which thread. Idle marks expire rather than clearing on
+// turn.completed: bus subscribers fire in registration order, and the
+// delegation drain runs AFTER the main fold — clearing there would blank the
+// flag before the hop that needs to read it. A busy bot never ages out, and a
+// stale mark only ever means "ask a human", so this fails closed.
+const unattendedBots = new Map<string, number>();
+const UNATTENDED_TTL_MS = 30 * 60_000;
+
+function markUnattended(botId: string) {
+  unattendedBots.set(botId, Date.now());
+}
+function clearUnattended(botId: string) {
+  unattendedBots.delete(botId);
+}
+function isUnattended(botId?: string | null): boolean {
+  if (!botId) return false;
+  const at = unattendedBots.get(botId);
+  if (at === undefined) return false;
+  // A long-running turn is still unattended even if its next approval comes
+  // more than 30 minutes after the previous one. Only an idle bot may age
+  // out; every positive read refreshes the inactivity window.
+  if (Date.now() - at > UNATTENDED_TTL_MS && !store.bot(botId)?.busy) {
+    unattendedBots.delete(botId);
+    return false;
+  }
+  unattendedBots.set(botId, Date.now());
+  return true;
+}
 let routines: RoutineManager | null = null;
 // The Local VM is intentionally one shared, visible desktop. Two agents
 // driving it simultaneously would mix clicks, keystrokes and screenshots,
 // so only one thread may lease it at a time.
-let activeVmThreadId: string | null = null;
+const localVmLease = new LocalVmLease(30 * 60_000);
+const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 let localVmLifecycleBusy = false;
+let localVmActiveThread: string | null = null;
+const LOCAL_VM_IDLE_MS = 8 * 60 * 60_000;
+const localVmIdle = new LocalVmIdleTimer(
+  LOCAL_VM_IDLE_MS,
+  () => localVmLifecycleBusy || localVmActiveThread !== null,
+  async () => {
+    // Fence lifecycle and turn dispatch before the first runtime inspection.
+    localVmLifecycleBusy = true;
+    try {
+      const status = await containerComputerStatus();
+      // The upstream desktop leaves a stale X lock after a stop, so it cannot
+      // safely resume. Remove only the disposable container; the mounted
+      // workspace and prepared image remain for a fast, clean recreation.
+      if (status.container === "running") await containerComputerAction("remove");
+    } finally {
+      localVmLifecycleBusy = false;
+    }
+  },
+);
+
+// A running VM may have survived an app/server restart. Start its idle
+// backstop even if nobody opens Settings or begins a turn this session.
+void containerComputerStatus()
+  .then((status) => {
+    if (status.container === "running") localVmIdle.touch();
+  })
+  .catch(() => null);
 
 bus.subscribe((event: RuntimeEvent) => {
+  localVmLease.touch(event.threadId);
+  if (localVmActiveThread === event.threadId) localVmIdle.touch();
+  if (event.type === "turn.completed") {
+    localVmLease.release(event.threadId);
+    if (localVmActiveThread === event.threadId) localVmActiveThread = null;
+  }
   broadcast({ kind: "runtime", event });
   routines?.handleRuntimeEvent(event);
   const bot = store.botByThread(event.threadId);
@@ -372,7 +448,9 @@ bus.subscribe((event: RuntimeEvent) => {
       // looks destructive stops even in auto mode.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       const settled = permission && asker && event.requestId
-        ? autoDecision(asker, event.tool, event.summary)
+        ? autoDecision(asker, event.tool, event.summary, {
+            unattended: isUnattended(asker.id),
+          })
         : null;
       if (settled && asker && event.requestId) {
         const instance = event.providerInstanceId
@@ -461,7 +539,6 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "turn.completed": {
-      if (activeVmThreadId === event.threadId) activeVmThreadId = null;
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);
       if (bot) {
@@ -503,7 +580,10 @@ bus.subscribe((event: RuntimeEvent) => {
     // unavailable provider. Unhandled, that rejection is fatal to the
     // harness (Node's default), which in the packaged app kills the server
     // child. Every delegation failure has to land as a chip instead.
-    return startTurn(toBotId, text, { commsDepth }).catch((err) => {
+    return startTurn(toBotId, text, {
+      commsDepth,
+      unattended: isUnattended(store.botByThread(sourceThreadId)?.id),
+    }).catch((err) => {
       const bot = store.bot(toBotId);
       const why = err instanceof Error ? err.message : String(err);
       const source = store.botByThread(sourceThreadId);
@@ -612,6 +692,8 @@ async function startTurn(
     /** Lets the system prompt put externally supplied payloads behind an
      * explicit untrusted-data boundary without changing ordinary chat. */
     automationSource?: RoutineRunTrigger;
+    /** the caller was already running unattended, so this turn is too */
+    unattended?: boolean;
     onDispatchError?: (message: string) => void;
   },
 ) {
@@ -619,6 +701,10 @@ async function startTurn(
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
   if (bot.busy) throw Object.assign(new Error("the bot is already working — interrupt it first"), { status: 409 });
   const threadId = opts?.threadId ?? bot.threadId;
+  // a webhook turn, or one inherited from a bot already running unattended
+  if (opts?.automationSource === "webhook" || opts?.unattended) markUnattended(bot.id);
+  // a person typing into this bot ends the unattended window immediately
+  else if (opts?.automationSource === undefined && !opts?.commsDepth) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const commsDepth = opts?.commsDepth ?? 0;
@@ -640,6 +726,17 @@ async function startTurn(
   }
   const instanceId = instance.instanceId;
   const model = opts?.runOn === "cloud" ? instance.models.default : bot.modelSelection.model;
+  // a cloud routine borrows the instance default model, so it borrows no
+  // per-bot effort either
+  const effort = opts?.runOn === "cloud" ? undefined : bot.modelSelection.effort;
+  // A selection can be persisted while its engine is offline. Re-check when
+  // the engine returns so an old or unsupported value never reaches a CLI.
+  if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
+    throw Object.assign(
+      new Error(`effort "${effort}" is not offered by this bot's engine — choose another level in settings`),
+      { status: 409 },
+    );
+  }
 
   // an edit hands us its already-branched user message; a plain send appends
   let userMessage = opts?.userMessage;
@@ -715,14 +812,21 @@ async function startTurn(
         if (!mountsComputerMcp || instance.driverKind === "boxAgent") {
           throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
         }
+        if (localVmLifecycleBusy) {
+          throw new Error("the Local VM is being started, stopped, or replaced — wait for setup to finish");
+        }
+        // Claim before the first await. The lifecycle route performs its
+        // matching check synchronously, so neither side can enter while the
+        // other is between inspection and mutation.
+        if (!localVmLease.claim(threadId, bot.id, localVmOwnerBusy)) {
+          throw new Error("the shared Local VM is already being used by another bot — wait for that turn to finish");
+        }
+        localVmActiveThread = threadId;
+        localVmIdle.touch();
         const localVm = await containerComputerStatus();
         if (!localVm.ready || !localVm.runtime) {
           throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Local VM)`);
         }
-        if (activeVmThreadId && activeVmThreadId !== threadId) {
-          throw new Error("the shared Local VM is already being used by another bot — wait for that turn to finish");
-        }
-        activeVmThreadId = threadId;
         integrations.localComputer = containerComputerMcp(localVm.runtime);
         computerKind = "vm";
       } else if (wants === "local") {
@@ -814,6 +918,7 @@ async function startTurn(
         threadId,
         text: turnText,
         model,
+        effort,
         // a rewound thread never resumes the abandoned branch's session
         // the active task's own session — another task's cursor would
         // resume the wrong conversation and defeat the context bubble
@@ -822,12 +927,15 @@ async function startTurn(
         system:
           persona +
           (computerKind === "vm"
-            ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine with no host folders mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
+            ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
             : computerKind === "box" && instance.driverKind !== "boxAgent"
-              ? " You have your own cloud computer — use screenshot, click, type_text, open_url and computer_exec whenever a desktop helps. Every action already returns the resulting screen, so don't follow it with screenshot; batch predictable sequences with computer_batch."
+            ? " You have your own cloud computer. In Chrome, prefer browser_snapshot with browser_click/browser_fill for semantic, trusted actions; use screenshot/click/type_text for visual or non-browser UI, open_url for navigation, and computer_exec for Linux tasks. Every action already returns the resulting screen, so don't follow it with screenshot; batch predictable pixel actions with computer_batch."
               : computerKind === "local"
               ? " You can act on the user's computer through the computer tools — take a screenshot or read the desktop state first, prefer accessibility actions over raw coordinates, and act carefully."
               : "") +
+          (computerKind
+            ? " At a sign-in, password, MFA, CAPTCHA, or other protected-input step, stop and ask the user to complete it on the visible computer. Never type their password or ask them to paste a password or one-time code into chat."
+            : "") +
           // gated on the integration, not the key: the hint only goes to a
           // bot whose driver actually mounted the tools
           (integrations.composio
@@ -848,7 +956,8 @@ async function startTurn(
       if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
       if (previewBoxId) startScreenPoller(bot.id, previewBoxId);
     } catch (e) {
-      if (activeVmThreadId === threadId) activeVmThreadId = null;
+      localVmLease.release(threadId);
+      if (localVmActiveThread === threadId) localVmActiveThread = null;
       const message = e instanceof Error ? e.message : String(e);
       const failure = store.appendMessage(threadId, {
         role: "bot",
@@ -872,8 +981,8 @@ routines = new RoutineManager({
     const bot = store.bot(botId);
     return !bot ? "missing" : bot.busy ? "busy" : "ready";
   },
-  createTask: (botId, title) => {
-    const task = store.createTask(botId, title, false);
+  createTask: (botId, title, activate = false) => {
+    const task = store.createTask(botId, title, activate);
     const bot = store.bot(botId);
     if (task && bot) broadcast({ kind: "bot", bot: publicBot(bot) });
     return task;
@@ -1308,7 +1417,7 @@ const server = createServer(async (req, res) => {
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
         mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
         const prefixed = `[Message from @${currentFrom.name}, another bot in this OpenMausBot workspace. Reply to them.]\n\n${message}`;
-        const reply = await askBotAndWait(toBotId, prefixed, depth);
+        const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId);
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
       }
@@ -1728,6 +1837,35 @@ const server = createServer(async (req, res) => {
     m = path.match(/^\/api\/bots\/([\w-]+)$/);
     if (m && method === "PATCH") {
       const body = await readBody(req);
+      const existing = store.bot(m[1]);
+      // Neither Codex (free-form string field) nor Grok (lazy, logs-only)
+      // rejects an unknown effort level at their own boundary — this is the
+      // only real gate, so it stays. But it fires only when the target
+      // instance actually resolves. An instance that isn't there declares no
+      // levels, and rejecting against that empty list would 400 the *whole*
+      // request: this is the app's general-purpose bot endpoint, and
+      // duplicateBot re-sends the source bot's entire modelSelection beside
+      // its name, title and description, so a source engine that happens to
+      // be offline would cost the copy all of them. Letting it through is
+      // safe — startTurn refuses to run a turn on an unavailable instance
+      // anyway, so an unverifiable level never reaches a CLI.
+      const nextSelection = (body as Record<string, unknown>).modelSelection as
+        | { instanceId?: string; effort?: string }
+        | undefined;
+      if (nextSelection?.effort !== undefined) {
+        if (!isEffortLevel(nextSelection.effort)) {
+          return json(res, 400, { error: `effort "${String(nextSelection.effort)}" is not recognized` });
+        }
+        const target = registry.get(nextSelection.instanceId ?? existing?.modelSelection.instanceId ?? "");
+        // typed as strings, not levels: this is the boundary that decides
+        // whether the value *is* a level, so it must not assert that it is
+        const allowed: readonly string[] = target?.adapter.capabilities.effortLevels ?? [];
+        if (target && !allowed.includes(nextSelection.effort)) {
+          return json(res, 400, {
+            error: `effort "${nextSelection.effort}" is not offered by this bot's engine`,
+          });
+        }
+      }
       const patch: Record<string, unknown> = {};
       for (const key of ["name", "title", "description", "notifications", "modelSelection", "unread", "computer", "color", "mascotExpression", "pinned", "hidden", "speakReplies", "voice"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
@@ -1741,7 +1879,6 @@ const server = createServer(async (req, res) => {
       if (body.chiefOfStaff !== undefined && typeof body.chiefOfStaff !== "boolean") {
         return json(res, 400, { error: "chiefOfStaff must be true or false" });
       }
-      const existing = store.bot(m[1]);
       if (body.hidden === true && existing?.chiefOfStaff && body.chiefOfStaff !== false) {
         return json(res, 400, { error: "choose another Chief of Staff before hiding this bot" });
       }
@@ -1987,7 +2124,7 @@ const server = createServer(async (req, res) => {
     // its daemon is up, and whether the desktop image and container exist
     if (method === "GET" && path === "/api/local-computer") {
       const status = await containerComputerStatus();
-      return json(res, 200, { ...status, commands: setupCommands(status.runtime) });
+      return json(res, 200, { ...status, commands: setupCommands(status.runtime), idle_timeout_ms: LOCAL_VM_IDLE_MS });
     }
     m = path.match(/^\/api\/local-computer\/(pull|run|start|stop|remove)$/);
     if (m && method === "POST") {
@@ -2002,18 +2139,26 @@ const server = createServer(async (req, res) => {
       if (localVmLifecycleBusy) {
         return json(res, 409, { error: "another Local VM setup action is still running" });
       }
-      if (activeVmThreadId && (action === "stop" || action === "remove" || action === "run")) {
+      const vmOwner = localVmLease.current(localVmOwnerBusy);
+      if (vmOwner && (action === "stop" || action === "remove" || action === "run")) {
         return json(res, 409, { error: "the Local VM is being used by a bot — stop that turn first" });
       }
       localVmLifecycleBusy = true;
       try {
         const status = await containerComputerAction(action);
-        return json(res, 200, { ...status, commands: setupCommands(status.runtime) });
+        if (action === "run" || action === "start") localVmIdle.touch();
+        if (action === "stop" || action === "remove") localVmIdle.cancel();
+        return json(res, 200, {
+          ...status,
+          commands: setupCommands(status.runtime),
+          idle_timeout_ms: LOCAL_VM_IDLE_MS,
+        });
       } finally {
         localVmLifecycleBusy = false;
       }
     }
     if (method === "POST" && path === "/api/local-computer/screenshot") {
+      localVmIdle.touch();
       return json(res, 200, { image: await containerComputerScreenshot() });
     }
 
@@ -2203,6 +2348,7 @@ server.listen(PORT, "127.0.0.1", () => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    localVmIdle.cancel();
     routines?.stop();
     webhookIngress?.server.close();
     void registry.disposeAll().finally(() => process.exit(0));
