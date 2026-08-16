@@ -7,7 +7,7 @@
 // The fake CLI is a shebang script Windows cannot exec directly —
 // resolveCliSpawn turns it into `node <script>`, so these run everywhere.
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -210,7 +210,10 @@ describe("ACP turns (fake CLI)", () => {
   it("passes ACP stdio flags and strips foreign provider keys from the child env", async () => {
     await create();
     const dump = join(scratch, "dump.json");
-    const workspace = join(scratch, "workspace");
+    // Windows can retain a terminated process's cwd for a moment. Put the
+    // asserted workspace under the suite home, whose global cleanup retries,
+    // instead of making this test's immediate scratch cleanup flaky.
+    const workspace = join(homedir(), "acp-workspace");
     mkdirSync(workspace);
     process.env.FAKE_ACP_DUMP = dump;
     process.env.XAI_API_KEY = "xai-should-not-leak";
