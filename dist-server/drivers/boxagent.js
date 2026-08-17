@@ -218,7 +218,12 @@ export const BoxAgentDriver = {
             snapshot,
             adapter: {
                 provider: DRIVER_KIND,
-                capabilities: { sessionModelSwitch: "in-session" },
+                capabilities: {
+                    sessionModelSwitch: "in-session",
+                    contextMode: "provider-managed",
+                    executionMode: "remote-computer",
+                    computerUse: "native",
+                },
                 sendTurn,
                 interruptTurn: async (threadId) => active.get(threadId)?.cancel(),
                 respondToRequest: async () => {

@@ -434,6 +434,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         provider: DRIVER_KIND,
         capabilities: {
           sessionModelSwitch: "unsupported",
+          contextMode: "resume-cursor",
+          executionMode: "local-process",
+          computerUse: "none",
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
         },
         sendTurn,

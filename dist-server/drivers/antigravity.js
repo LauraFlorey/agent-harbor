@@ -308,7 +308,12 @@ export const AntigravityDriver = {
             snapshot,
             adapter: {
                 provider: DRIVER_KIND,
-                capabilities: { sessionModelSwitch: "in-session" },
+                capabilities: {
+                    sessionModelSwitch: "in-session",
+                    contextMode: "resume-cursor",
+                    executionMode: "local-process",
+                    computerUse: "none",
+                },
                 sendTurn,
                 interruptTurn: async (threadId) => active.get(threadId)?.stop(),
                 respondToRequest: async () => {

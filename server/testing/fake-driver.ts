@@ -4,6 +4,7 @@
 import type {
   DriverCreateInput,
   EffortLevel,
+  ProviderAdapter,
   ProviderDriver,
   ProviderInstance,
   ProviderSnapshot,
@@ -19,6 +20,9 @@ export interface FakeDriverOptions {
   failSnapshot?: string;
   /** effort levels this fake driver declares, forwarded onto capabilities. */
   effortLevels?: readonly EffortLevel[];
+  contextMode?: ProviderAdapter["capabilities"]["contextMode"];
+  executionMode?: ProviderAdapter["capabilities"]["executionMode"];
+  computerUse?: ProviderAdapter["capabilities"]["computerUse"];
 }
 
 export interface FakeDriverHandle {
@@ -65,7 +69,13 @@ export function makeFakeDriver(opts: FakeDriverOptions = {}): FakeDriverHandle {
           },
           adapter: {
             provider: kind,
-            capabilities: { sessionModelSwitch: "unsupported", effortLevels: opts.effortLevels },
+            capabilities: {
+              sessionModelSwitch: "unsupported",
+              contextMode: opts.contextMode ?? "resume-cursor",
+              executionMode: opts.executionMode ?? "local-process",
+              computerUse: opts.computerUse ?? "none",
+              effortLevels: opts.effortLevels,
+            },
             sendTurn: async () => ({ turnId: "fake-turn" }),
             interruptTurn: async () => {},
             respondToRequest: async () => {},
