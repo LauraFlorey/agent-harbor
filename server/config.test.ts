@@ -49,6 +49,7 @@ describe("secure config storage", () => {
       config,
       JSON.stringify({
         xai: { key: "xai_legacy", url: "https://example.test" },
+        openrouter: { apiKey: "openrouter_legacy", url: "https://router.example.test" },
         composio: { key: "ck_legacy", apiKey: "ak_legacy", url: "https://connect.example.test" },
         box: { token: "box_legacy" },
         opencodeGo: { apiKey: "opencode_legacy" },
@@ -60,6 +61,7 @@ describe("secure config storage", () => {
     const loaded = loadConfig();
     expect(loaded).toMatchObject({
       xai: { key: "xai_legacy", url: "https://example.test" },
+      openrouter: { apiKey: "openrouter_legacy", url: "https://router.example.test" },
       composio: { key: "ck_legacy", apiKey: "ak_legacy", url: "https://connect.example.test" },
       box: { token: "box_legacy" },
       opencodeGo: { apiKey: "opencode_legacy" },
@@ -70,6 +72,7 @@ describe("secure config storage", () => {
     const disk = JSON.parse(readFileSync(config, "utf8"));
     expect(disk).toEqual({
       xai: { url: "https://example.test" },
+      openrouter: { url: "https://router.example.test" },
       composio: { url: "https://connect.example.test" },
       box: {},
       opencodeGo: {},
@@ -79,6 +82,7 @@ describe("secure config storage", () => {
     const secrets = JSON.parse(readFileSync(join(DATA_DIR, "secrets.json"), "utf8"));
     expect(secrets).toEqual({
       "xai.key": "xai_legacy",
+      "openrouter.apiKey": "openrouter_legacy",
       "composio.key": "ck_legacy",
       "composio.apiKey": "ak_legacy",
       "box.token": "box_legacy",
@@ -89,6 +93,7 @@ describe("secure config storage", () => {
 
   it("saves new credentials outside config.json and can clear them", () => {
     saveConfig({
+      openrouter: { apiKey: "openrouter_new" },
       composio: { key: "ck_new", apiKey: "ak_new", url: "https://connect.example.test" },
       opencodeGo: { apiKey: "opencode_new" },
       tts: { key: "tts_new", voice: "voice-2" },
@@ -99,14 +104,16 @@ describe("secure config storage", () => {
       composio: { url: "https://connect.example.test" },
       tts: { voice: "voice-2" },
     });
-    expect(JSON.stringify(disk)).not.toMatch(/ck_new|ak_new|opencode_new|tts_new/);
+    expect(JSON.stringify(disk)).not.toMatch(/openrouter_new|ck_new|ak_new|opencode_new|tts_new/);
     expect(loadConfig()).toMatchObject({
+      openrouter: { apiKey: "openrouter_new" },
       composio: { key: "ck_new", apiKey: "ak_new" },
       opencodeGo: { apiKey: "opencode_new" },
       tts: { key: "tts_new", voice: "voice-2" },
     });
 
-    saveConfig({ composio: { key: "", apiKey: "" }, opencodeGo: { apiKey: "" }, tts: { key: "" } });
+    saveConfig({ openrouter: { apiKey: "" }, composio: { key: "", apiKey: "" }, opencodeGo: { apiKey: "" }, tts: { key: "" } });
+    expect(loadConfig().openrouter?.apiKey).toBeUndefined();
     expect(loadConfig().composio).toMatchObject({ key: undefined, apiKey: undefined });
     expect(loadConfig().opencodeGo?.apiKey).toBeUndefined();
     expect(loadConfig().tts?.key).toBeUndefined();
@@ -134,5 +141,45 @@ describe("OpenCode Go configuration", () => {
     const instances = instanceConfigs(cfg);
     expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "secret-value" });
     expect(instances.grok.environment).toEqual({});
+  });
+});
+
+describe("OpenRouter configuration", () => {
+  it("adds the default API provider and injects its key nowhere else", () => {
+    const instances = instanceConfigs({ openrouter: { apiKey: "openrouter-secret" } });
+
+    expect(instances.openrouter).toMatchObject({
+      driver: "openrouter",
+      environment: { OPENROUTER_API_KEY: "openrouter-secret" },
+    });
+    expect(instances.codex.environment).not.toHaveProperty("OPENROUTER_API_KEY");
+  });
+
+  it("injects the key only into explicitly configured OpenRouter instances", () => {
+    const instances = instanceConfigs({
+      openrouter: { apiKey: "openrouter-secret" },
+      instances: {
+        router: { driver: "openrouter" },
+        grok: { driver: "grokAgent" },
+      },
+    });
+
+    expect(instances.router.environment).toEqual({ OPENROUTER_API_KEY: "openrouter-secret" });
+    expect(instances.grok.environment).toEqual({});
+  });
+
+  it("adds OpenRouter to an older customized fleet after the key is saved", () => {
+    const cfg: AppConfig = {
+      openrouter: { apiKey: "openrouter-secret" },
+      instances: { custom: { driver: "codex", environment: { CUSTOM: "kept" } } },
+    };
+
+    const instances = instanceConfigs(cfg);
+    expect(instances.custom.environment).toEqual({ CUSTOM: "kept" });
+    expect(instances.openrouter).toMatchObject({
+      driver: "openrouter",
+      environment: { OPENROUTER_API_KEY: "openrouter-secret" },
+    });
+    expect(cfg.instances?.custom.environment).toEqual({ CUSTOM: "kept" });
   });
 });

@@ -12,6 +12,7 @@
 // Composer dictation omits this flag and keeps its existing press-to-stop
 // behavior, while call mode opts into silence endpointing.
 import AVFoundation
+import Darwin
 import Foundation
 import Speech
 
@@ -50,6 +51,41 @@ let finishFile: String? = {
   guard let index = args.firstIndex(of: "--finish-file"), index + 1 < args.count else { return nil }
   return args[index + 1]
 }()
+
+let ownerPID: pid_t? = {
+  let args = CommandLine.arguments
+  guard
+    let index = args.firstIndex(of: "--owner-pid"),
+    index + 1 < args.count,
+    let value = Int32(args[index + 1]),
+    value > 1
+  else { return nil }
+  return value
+}()
+
+// LaunchServices re-parents this helper outside Electron's process tree. A
+// hard restart therefore cannot rely on parent-death semantics. Poll the
+// Electron main PID directly so a crashed or force-killed app releases the
+// microphone without waiting for a future Agent Harbor launch.
+var ownerTimer: DispatchSourceTimer?
+if let ownerPID {
+  let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+  timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250))
+  timer.setEventHandler {
+    if kill(ownerPID, 0) != 0 && errno != EPERM {
+      // The Electron parent normally reads and removes this directory after
+      // the helper exits. If that parent is gone, remove the sensitive
+      // transcript files here instead of abandoning them in /tmp.
+      if let stopFile {
+        let sessionDir = URL(fileURLWithPath: stopFile).deletingLastPathComponent().path
+        try? FileManager.default.removeItem(atPath: sessionDir)
+      }
+      exit(0)
+    }
+  }
+  ownerTimer = timer
+  timer.resume()
+}
 
 // LaunchServices gives the helper the bundle identity TCC needs, but it also
 // means the parent cannot terminate it by killing the `open -W` process. A

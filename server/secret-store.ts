@@ -6,6 +6,7 @@ import { writeFileAtomic } from "./atomic.ts";
 
 export const SECRET_IDS = [
   "xai.key",
+  "openrouter.apiKey",
   "composio.key",
   "composio.apiKey",
   "box.token",
@@ -28,8 +29,37 @@ export interface SecurityCommandResult {
 }
 
 export type SecurityCommandRunner = (args: string[], input?: string) => SecurityCommandResult;
+export type KeychainWriteRunner = (account: string, service: string, value: string) => SecurityCommandResult;
 
 const KEYCHAIN_SERVICE = "com.openmausbot.app.secrets";
+
+// `security add-generic-password -w` deliberately reads from a TTY. The
+// harness server has no TTY, so piping the value directly leaves `security`
+// waiting forever. macOS ships Expect; it creates the private pseudo-terminal
+// that the command requires while the credential itself still enters Expect
+// over stdin and never appears in argv, the environment, or logs.
+const KEYCHAIN_WRITE_EXPECT = String.raw`
+log_user 0
+set timeout 8
+set secret [read -nonewline stdin]
+spawn -noecho /usr/bin/security add-generic-password -a $env(AGENT_HARBOR_KEYCHAIN_ACCOUNT) -s $env(AGENT_HARBOR_KEYCHAIN_SERVICE) -U -w
+expect {
+  -re {password data for new item:} {
+    send -- "$secret\r"
+    exp_continue
+  }
+  -re {retype password for new item:} {
+    send -- "$secret\r"
+    exp_continue
+  }
+  eof {
+    set result [wait]
+    exit [lindex $result 3]
+  }
+  timeout {
+    exit 124
+  }
+}`;
 
 const runSecurity: SecurityCommandRunner = (args, input) => {
   const result = spawnSync("/usr/bin/security", args, {
@@ -47,7 +77,33 @@ const runSecurity: SecurityCommandRunner = (args, input) => {
   };
 };
 
+const writeSecurityPassword: KeychainWriteRunner = (account, service, value) => {
+  const result = spawnSync("/usr/bin/expect", ["-c", KEYCHAIN_WRITE_EXPECT], {
+    encoding: "utf8",
+    input: value,
+    timeout: 12_000,
+    maxBuffer: 128 * 1024,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      LANG: "C",
+      LC_ALL: "C",
+      AGENT_HARBOR_KEYCHAIN_ACCOUNT: account,
+      AGENT_HARBOR_KEYCHAIN_SERVICE: service,
+    },
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error,
+  };
+};
+
 function commandError(action: string, result: SecurityCommandResult): Error {
+  if (result.status === 124 || result.error?.message.includes("ETIMEDOUT")) {
+    return new Error(`macOS Keychain ${action} timed out. Unlock your login Keychain and try again.`);
+  }
   const detail = result.error?.message || result.stderr.trim() || `exit status ${String(result.status)}`;
   return new Error(`macOS Keychain ${action} failed: ${detail}`);
 }
@@ -57,6 +113,7 @@ function commandError(action: string, result: SecurityCommandResult): Error {
 export function createKeychainSecretStore(
   runner: SecurityCommandRunner = runSecurity,
   service = KEYCHAIN_SERVICE,
+  writer: KeychainWriteRunner = writeSecurityPassword,
 ): SecretStore {
   return {
     get(id) {
@@ -66,13 +123,7 @@ export function createKeychainSecretStore(
       return result.stdout.replace(/[\r\n]+$/, "") || undefined;
     },
     set(id, value) {
-      // `security` documents a trailing -w as the safe, prompted form. Its
-      // prompt consumes stdin here; the credential is never a process arg.
-      // New and updated generic-password items both request confirmation.
-      const result = runner(
-        ["add-generic-password", "-a", id, "-s", service, "-U", "-w"],
-        `${value}\n${value}\n`,
-      );
+      const result = writer(id, service, value);
       if (result.status !== 0 || result.error) throw commandError("write", result);
     },
     delete(id) {

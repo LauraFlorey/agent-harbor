@@ -6,12 +6,16 @@ import { Check, CircleHelp, ExternalLink, Loader2, TriangleAlert } from "lucide-
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 
-export type ConfigSection = "composio" | "composioApi" | "box" | "opencodeGo";
+export type ConfigSection = "openrouter" | "composio" | "composioApi" | "box" | "opencodeGo";
 
 const SECTIONS: Record<
   ConfigSection,
   { body: (value: string) => unknown; flag: (config: ConfigStatus) => boolean }
 > = {
+  openrouter: {
+    body: (v) => ({ openrouter: { apiKey: v } }),
+    flag: (c) => c.openrouter?.configured ?? false,
+  },
   composio: { body: (v) => ({ composio: { key: v } }), flag: (c) => c.composio.configured },
   composioApi: {
     body: (v) => ({ composio: { apiKey: v } }),
@@ -33,6 +37,15 @@ const CREDENTIALS: Record<
     warning?: string;
   }
 > = {
+  openrouter: {
+    label: "OpenRouter API key",
+    placeholder: "sk-or-v1-…",
+    description: "Choose from the text models available to your OpenRouter account.",
+    href: "https://openrouter.ai/settings/keys",
+    linkLabel: "Open OpenRouter keys",
+    optional: true,
+    warning: "OpenRouter model usage may incur charges on your account.",
+  },
   composio: {
     label: "Composio Connect key",
     placeholder: "ck_…",
