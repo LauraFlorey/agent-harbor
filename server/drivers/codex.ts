@@ -12,7 +12,7 @@
 import { homedir } from "node:os";
 
 import { buildAgentEnvironment } from "../agent-environment.ts";
-import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { describeSpawnFailure, killCliTree, spawnCli } from "../procs.ts";
 
 import type {
   DriverCreateInput,
@@ -25,6 +25,7 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { augmentedPath } from "../env-path.ts";
+import { resolveCompatibleCodexCli, type CodexCliResolution } from "./codex-cli.ts";
 import { appendNative } from "./native.ts";
 
 const DRIVER_KIND = "codex";
@@ -82,6 +83,19 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       asks: Map<string, (behavior: string, message?: string) => void>;
     }
     const active = new Map<string, Turn>();
+    let cliResolution: Promise<CodexCliResolution> | null = null;
+
+    const resolveCodexCli = async () => {
+      if (!cliResolution) {
+        const env = buildAgentEnvironment({ overrides: { PATH: augmentedPath() } });
+        cliResolution = resolveCompatibleCodexCli(config.cli, env);
+      }
+      const result = await cliResolution;
+      // A newly installed or updated CLI should become visible when the user
+      // checks the engine again, without requiring an app restart.
+      if (!result.ok) cliResolution = null;
+      return result;
+    };
 
     const emit = (event: RuntimeEvent) => {
       for (const l of [...listeners]) l(event);
@@ -99,13 +113,24 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const turnId = newId();
 
+      const cli = await resolveCodexCli();
+      // Re-check after the asynchronous compatibility probe so simultaneous
+      // callers cannot both start a turn on the same thread.
+      if (active.has(threadId)) throw new Error("a turn is already running on this thread");
+      if (!cli.ok) {
+        emit({ ...base(threadId, turnId), type: "turn.started" });
+        emit({ ...base(threadId, turnId), type: "runtime.error", message: cli.reason, setup: cli.setup });
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "setup_error", cost: null });
+        return { turnId };
+      }
+
       // The CLI owns its own ChatGPT login. Starting from the shared OS
       // allowlist keeps API keys and unrelated service credentials out.
       const env = buildAgentEnvironment({
         overrides: { PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" },
       });
 
-      const child = spawnCli(config.cli, ["app-server"], {
+      const child = spawnCli(cli.command, ["app-server"], {
         cwd: turn.cwd ?? homedir(),
         env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -343,7 +368,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (stderr.length > 8192) stderr = stderr.slice(-8192);
       });
       child.on("error", (e) => {
-        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, cli.command) });
         settle(false, "spawn_error");
       });
       child.on("close", (code) => {
@@ -414,13 +439,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     };
 
     const snapshot = async (): Promise<ProviderSnapshot> => {
-      const version = await new Promise<string | null>((resolve) => {
-        execCli(config.cli, ["--version"], { timeout: 8000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) }, (err, stdout) =>
-          resolve(err ? null : stdout.trim()),
-        );
-      });
-      if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      return { state: "available", version };
+      const cli = await resolveCodexCli();
+      if (!cli.ok) return { state: "unavailable", reason: cli.reason };
+      return { state: "available", version: cli.version ?? "compatible app-server" };
     };
 
     return {
