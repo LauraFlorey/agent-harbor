@@ -38,6 +38,12 @@ describe("ProviderRegistry", () => {
     expect(described.snapshot.reason).toContain("from-the-future");
     expect(described.displayName).toBe("Tomorrow");
     expect(described.models.options).toHaveLength(0);
+    expect(described.capabilities).toMatchObject({
+      contextMode: "provider-managed",
+      executionMode: "local-process",
+      computerUse: "none",
+      agentsMcp: false,
+    });
   });
 
   it("downgrades a config-decode failure to a shadow with the error as reason", async () => {
@@ -82,6 +88,23 @@ describe("ProviderRegistry", () => {
 
     const [described] = await registry.describe();
     expect(described.capabilities.effortLevels).toEqual(["low", "high"]);
+  });
+
+  it("forwards provider-neutral context, execution, and computer capabilities", async () => {
+    const fake = makeFakeDriver({
+      contextMode: "provider-managed",
+      executionMode: "remote-computer",
+      computerUse: "native",
+    });
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ cloud: { driver: "fake" } });
+
+    const [described] = await registry.describe();
+    expect(described.capabilities).toMatchObject({
+      contextMode: "provider-managed",
+      executionMode: "remote-computer",
+      computerUse: "native",
+    });
   });
 
   it("omits effortLevels from describe() when the driver declares none", async () => {

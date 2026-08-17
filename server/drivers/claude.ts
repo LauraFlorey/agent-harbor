@@ -562,8 +562,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         provider: DRIVER_KIND,
         capabilities: {
           sessionModelSwitch: "in-session",
+          contextMode: "resume-cursor",
+          executionMode: "local-process",
+          computerUse: "mcp",
           agentsMcp: true,
-          computerMcp: true,
           composioMcp: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
         },

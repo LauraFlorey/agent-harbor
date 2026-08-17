@@ -88,7 +88,9 @@ function WebhookEditor({ webhook, bots, onClose, onCredential }: { webhook?: Web
   const [eventTypes, setEventTypes] = useState((webhook?.eventTypes ?? []).join(", "));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
+  const cloudInstance = state.instances.find(
+    (instance) => instance.capabilities?.executionMode === "remote-computer",
+  );
   const cloudReady = Boolean(state.config?.box.configured && cloudInstance?.snapshot.state === "available");
 
   const save = async () => {

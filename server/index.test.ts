@@ -186,6 +186,11 @@ describe("harness HTTP API", () => {
       snapshot: { state: "unavailable" },
     });
     expect(body.instances[0].snapshot.reason).toContain("not-a-real-driver");
+    expect(body.instances[0].capabilities).toMatchObject({
+      contextMode: "provider-managed",
+      executionMode: "local-process",
+      computerUse: "none",
+    });
   });
 
   it("creates, patches, and deletes a bot", async () => {

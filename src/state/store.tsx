@@ -200,7 +200,13 @@ export interface InstanceInfo {
     version?: string | null;
   };
   models: { default: string; options: Array<{ id: string; label: string }> };
-  capabilities?: { computerMcp?: boolean; agentsMcp?: boolean; effortLevels?: readonly EffortLevel[] };
+  capabilities?: {
+    contextMode?: "resume-cursor" | "transcript-replay" | "provider-managed";
+    executionMode?: "local-process" | "remote-computer";
+    computerUse?: "none" | "mcp" | "native";
+    agentsMcp?: boolean;
+    effortLevels?: readonly EffortLevel[];
+  };
   install?: EngineInstall;
 }
 

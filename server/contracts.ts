@@ -154,22 +154,29 @@ export interface ProviderAdapter {
   readonly provider: DriverKind;
   readonly capabilities: {
     sessionModelSwitch: "in-session" | "unsupported";
+    /** How the provider receives prior conversation state. The harness uses
+     * this declaration when a user rewinds a branch; it must never infer
+     * context behavior from a provider name. */
+    contextMode: "resume-cursor" | "transcript-replay" | "provider-managed";
+    /** Where the model runtime itself executes. Remote-computer providers
+     * are eligible for detached Cloud VM routines; local-process providers
+     * may receive a host working directory. */
+    executionMode: "local-process" | "remote-computer";
+    /** How computer control reaches the model. `mcp` providers can mount a
+     * selected host, local-VM, or cloud-computer MCP endpoint. `native`
+     * providers already execute inside their remote computer. */
+    computerUse: "none" | "mcp" | "native";
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */
     agentsMcp?: boolean;
-    /** True when the driver mounts turn.integrations.computer (the box's
-     * screenshot/click tools). Same rule as agentsMcp: a bot must never be
-     * told it has a computer whose tools its driver cannot mount — it
-     * burns turns hunting for tools that aren't there. */
-    computerMcp?: boolean;
     /** True when the driver mounts turn.integrations.composio (the user's
      * connected apps). Same rule again: a key in the config says the user
      * HAS those connections, not that this driver can reach them. */
     composioMcp?: boolean;
     /** Effort levels this driver can pass to its CLI, ascending. Absent =
      * the driver cannot set effort, so the app never offers the control —
-     * same rule as computerMcp: never show a knob the driver cannot turn. */
+     * same rule as computerUse: never show a knob the driver cannot turn. */
     effortLevels?: readonly EffortLevel[];
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;

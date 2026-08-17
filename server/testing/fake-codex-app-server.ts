@@ -10,6 +10,15 @@
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { writeFileSync } from "node:fs";
 
+if (process.argv.includes("--version")) {
+  process.stdout.write("codex-cli 0.999.0-test\n");
+  process.exit(0);
+}
+if (process.argv.includes("--help")) {
+  process.stdout.write("Commands:\n  app-server  Run the app server\n");
+  process.exit(0);
+}
+
 const mode = process.env.FAKE_CODEX_MODE ?? "happy";
 const calls: Array<{ method: string; params: unknown }> = [];
 let decision: unknown = null;

@@ -90,17 +90,23 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
   );
   const vmSupported = Boolean(
     selectedInstance?.snapshot.state === "available" &&
-      selectedInstance.capabilities?.computerMcp &&
-      selectedInstance.driverKind !== "boxAgent",
+      selectedInstance.capabilities?.computerUse === "mcp" &&
+      selectedInstance.capabilities?.executionMode === "local-process",
   );
-  const computerToolSupported = selectedInstance?.capabilities?.computerMcp === true;
-  const cloudSupported = computerToolSupported || selectedInstance?.driverKind === "boxAgent";
+  const computerToolSupported = selectedInstance?.capabilities?.computerUse === "mcp";
+  const cloudSupported =
+    selectedInstance?.capabilities?.computerUse === "mcp" ||
+    selectedInstance?.capabilities?.computerUse === "native";
   const botRoutines = state.routines
     .filter((routine) => routine.botId === bot.id)
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity));
   const cloudRoutineReady = Boolean(
     state.config?.box.configured &&
-      state.instances.some((instance) => instance.driverKind === "boxAgent" && instance.snapshot.state === "available"),
+      state.instances.some(
+        (instance) =>
+          instance.capabilities?.executionMode === "remote-computer" &&
+          instance.snapshot.state === "available",
+      ),
   );
   const activeRoutineRun = state.routineRuns.find(
     (run) => run.botId === bot.id && ["queued", "running", "waiting"].includes(run.status),

@@ -647,6 +647,11 @@ async function finalScreenFrame(botId) {
     return entry.last;
 }
 // ── turn dispatch (upstream ProviderCommandReactor, miniature) ──────────
+/** The provider registry, not a hard-coded driver id, decides which engine
+ * can run a detached turn inside its own cloud computer. */
+function cloudRunner() {
+    return (registry.instances().find((candidate) => candidate.adapter.capabilities.executionMode === "remote-computer") ?? null);
+}
 async function startTurn(botId, text, opts) {
     const bot = store.bot(botId);
     if (!bot)
@@ -668,7 +673,7 @@ async function startTurn(botId, text, opts) {
     if (text.trim())
         store.titleTaskFromFirstMessage(bot.id, text, threadId);
     const instance = opts?.runOn === "cloud"
-        ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
+        ? cloudRunner()
         : registry.get(bot.modelSelection.instanceId);
     if (!instance) {
         throw Object.assign(new Error(opts?.runOn === "cloud"
@@ -706,7 +711,7 @@ async function startTurn(botId, text, opts) {
     // cleared only once the turn is actually dispatched — clearing it here
     // would cost the next attempt its history if this dispatch fails.
     const rewound = threadId === bot.threadId && Boolean(bot.rewound);
-    const turnText = rewound && instance.driverKind !== "grok" && transcript.length
+    const turnText = rewound && instance.adapter.capabilities.contextMode !== "transcript-replay" && transcript.length
         ? [
             "[The user rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]",
             "",
@@ -746,14 +751,15 @@ async function startTurn(botId, text, opts) {
             // Legacy unset values fail closed. Host desktop control is available
             // only after the user explicitly selects "This computer".
             const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
-            const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
-            const mountsCloudComputer = mountsComputerMcp || instance.driverKind === "boxAgent";
+            const { computerUse, executionMode } = instance.adapter.capabilities;
+            const mountsComputerMcp = computerUse === "mcp";
+            const mountsCloudComputer = computerUse !== "none";
             let previewBoxId = null;
             let computerKind = null;
             // Explicit destinations are strict. In particular, Local VM must never
             // fall through to host CUA and accidentally click on the user's Mac.
             if (wants === "vm") {
-                if (!mountsComputerMcp || instance.driverKind === "boxAgent") {
+                if (!mountsComputerMcp || executionMode !== "local-process") {
                     throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
                 }
                 if (localVmLifecycleBusy) {
@@ -852,14 +858,14 @@ async function startTurn(botId, text, opts) {
                 resumeCursor: rewound ? undefined : task.resumeCursors[instanceId],
                 transcript,
                 system: persona +
-                    (instance.driverKind !== "boxAgent"
+                    (executionMode === "local-process"
                         ? bot.hostAccess === true
                             ? ` The user explicitly enabled host-file access for this bot. Your working directory is ${workingDirectory}. Continue to use the normal approval flow for sensitive actions.`
                             : ` Your private working directory is ${workingDirectory}. Keep file work inside it. If work requires another host path, stop and ask the user to enable Host files in this bot's settings.`
                         : "") +
                     (computerKind === "vm"
                         ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
-                        : computerKind === "box" && instance.driverKind !== "boxAgent"
+                        : computerKind === "box" && computerUse === "mcp"
                             ? " You have your own cloud computer. In Chrome, prefer browser_snapshot with browser_click/browser_fill for semantic, trusted actions; use screenshot/click/type_text for visual or non-browser UI, open_url for navigation, and computer_exec for Linux tasks. Every action already returns the resulting screen, so don't follow it with screenshot; batch predictable pixel actions with computer_batch."
                             : computerKind === "local"
                                 ? " You can act on the user's computer through the computer tools — take a screenshot or read the desktop state first, prefer accessibility actions over raw coordinates, and act carefully."
@@ -882,7 +888,7 @@ async function startTurn(botId, text, opts) {
                             .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
                         : ""),
                 integrations,
-                ...(instance.driverKind === "boxAgent" ? {} : { cwd: workingDirectory }),
+                ...(executionMode === "local-process" ? { cwd: workingDirectory } : {}),
             });
             // dispatched: the rewind is spent, and the old cursors are dead
             if (rewound)
@@ -927,7 +933,7 @@ routines = new RoutineManager({
     interruptTurn: async (botId, threadId, runOn) => {
         const bot = store.bot(botId);
         const instance = runOn === "cloud"
-            ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
+            ? cloudRunner()
             : bot
                 ? registry.get(bot.modelSelection.instanceId)
                 : null;

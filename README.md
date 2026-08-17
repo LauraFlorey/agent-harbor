@@ -178,6 +178,13 @@ flowchart LR
 | App | `src/` | The chat shell. Server-backed store, one reducer, zero client-side transports. |
 | Desktop | `electron/` | macOS, Windows, and Ubuntu shells with an embedded harness and explicit platform capabilities; Apple speech, local screen capture, and the current CUA bridge remain macOS-only. |
 
+Providers plug into one typed contract in `server/contracts.ts`. Each instance
+declares how it carries conversation context, where it executes, and whether
+computer control is unavailable, mounted over MCP, or native to the provider.
+The central turn runtime and UI route from those capabilities rather than from
+provider names, so a new engine can be registered without adding identity-based
+branches throughout the application.
+
 ## Quick start
 
 **Released builds:** the harness server is embedded, so macOS and Windows need no separate server setup.

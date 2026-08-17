@@ -546,8 +546,10 @@ export function createAcpDriver(support) {
                     provider: DRIVER_KIND,
                     capabilities: {
                         sessionModelSwitch: "unsupported",
+                        contextMode: "resume-cursor",
+                        executionMode: "local-process",
+                        computerUse: "mcp",
                         agentsMcp: true,
-                        computerMcp: true,
                         effortLevels: support.effortLevels,
                     },
                     sendTurn,
