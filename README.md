@@ -190,10 +190,17 @@ Agent Harbor does not publish signed binaries yet. Build the desktop app from so
 git clone https://github.com/LauraFlorey/agent-harbor.git && cd agent-harbor
 pnpm install
 
+pnpm dev:all       # recommended: server + interface + desktop app in one terminal
+
+# Or start each part separately:
 pnpm dev:server    # harness server → 127.0.0.1:8799
 pnpm dev           # app → http://127.0.0.1:5199
 pnpm dev:desktop   # Electron shell; keep the two commands above running
 ```
+
+With `pnpm dev:all`, closing the Agent Harbor window or pressing **Control-C** in that terminal stops every
+development process cleanly. If a required port is already occupied, the launcher explains which process to
+stop or which environment variable can select another port.
 
 Requirements: **macOS, Windows, or Ubuntu 24.04 x64**, **Node 24+**, **pnpm**, and at least one agent CLI — [`claude`](https://claude.com/claude-code),
 [`codex`](https://github.com/openai/codex), or [`grok`](https://x.ai/cli) — installed and logged in. They appear
