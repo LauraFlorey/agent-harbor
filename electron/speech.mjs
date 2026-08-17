@@ -5,8 +5,10 @@
 import { spawn } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   unwatchFile,
@@ -36,6 +38,30 @@ const BIN = app.isPackaged
   : speechHelperBinary;
 
 let child = null;
+
+/** Remove private speech sessions left by a crash or force-kill. Call this
+ * only after acquiring Electron's single-instance lock, so an active Agent
+ * Harbor window can never lose its current transcript files. */
+export function cleanupStaleSpeechSessions() {
+  const tempDir = app.getPath("temp");
+  let names;
+  try {
+    names = readdirSync(tempDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith("openmausbot-speech-")) continue;
+    const sessionDir = path.join(tempDir, name);
+    try {
+      const stat = lstatSync(sessionDir);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+      rmSync(sessionDir, { recursive: true, force: true });
+    } catch {
+      /* another cleanup may already have removed it */
+    }
+  }
+}
 
 function ensureBuilt() {
   if (app.isPackaged) return;
@@ -81,8 +107,10 @@ export function startSpeech(win, options = {}) {
   const errorPath = path.join(sessionDir, "stderr.log");
   const stopPath = path.join(sessionDir, "stop");
   const finishPath = path.join(sessionDir, "finish");
-  writeFileSync(outputPath, "");
-  writeFileSync(errorPath, "");
+  // Speech is sensitive data. The session directory is private already, and
+  // explicit file modes keep it private if platform defaults ever change.
+  writeFileSync(outputPath, "", { mode: 0o600 });
+  writeFileSync(errorPath, "", { mode: 0o600 });
 
   let proc;
   try {
@@ -99,6 +127,8 @@ export function startSpeech(win, options = {}) {
         BUNDLE,
         "--args",
         ...args,
+        "--owner-pid",
+        String(process.pid),
         "--stop-file",
         stopPath,
         "--finish-file",

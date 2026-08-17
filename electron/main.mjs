@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startCua, stopCua, registerCuaIpc } from "./cua.mjs";
-import { finishSpeech, startSpeech, stopSpeech } from "./speech.mjs";
+import { cleanupStaleSpeechSessions, finishSpeech, startSpeech, stopSpeech } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { startUpdater, registerUpdaterIpc } from "./updater.mjs";
 import capabilitiesModule from "./capabilities.cjs";
@@ -16,6 +16,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
 let SERVER_PORT = 8799;
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
 
 // GNOME groups the window with its installed desktop entry only when both
 // identities match. This must run before Electron becomes ready.
@@ -193,6 +196,11 @@ function createWindow() {
   } else {
     win.loadURL(DEV_URL);
   }
+  // macOS keeps the Electron process alive after its last window closes.
+  // Renderer cleanup IPC is not guaranteed during teardown, so the main
+  // process must close capture itself before the window disappears.
+  win.once("closed", stopSpeech);
+  win.webContents.once("render-process-gone", stopSpeech);
   return win;
 }
 
@@ -285,7 +293,19 @@ ipcMain.handle("desktop:capabilities", async () =>
   }),
 );
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.on("second-instance", () => {
+  const existing = BrowserWindow.getAllWindows()[0];
+  if (existing) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+  } else if (app.isReady()) {
+    createWindow();
+  }
+});
+
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
+  cleanupStaleSpeechSessions();
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
   // getDisplayMedia in the renderer → this handler → ScreenCaptureKit, all
   // inside the app's own processes — the one capture path macOS reliably

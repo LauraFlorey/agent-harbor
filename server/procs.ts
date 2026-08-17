@@ -19,6 +19,22 @@ import type { Readable, Writable } from "node:stream";
 import { join } from "node:path";
 import { resolveCliSpawn, type ResolvedSpawn } from "./env-path.ts";
 
+const TREE_KILL_GRACE_MS = 1_000;
+const treeStops = new Map<number, Promise<void>>();
+
+function trackedTreeStop(pid: number, stop: () => Promise<void>): void {
+  if (treeStops.has(pid)) return;
+  const task = stop().finally(() => treeStops.delete(pid));
+  treeStops.set(pid, task);
+}
+
+/** Wait until every process tree already asked to stop has received its
+ * forced fallback. Server shutdown calls this after disposing the fleet so
+ * it cannot exit in the gap between SIGTERM and SIGKILL. */
+export async function drainCliTrees(): Promise<void> {
+  while (treeStops.size) await Promise.allSettled([...treeStops.values()]);
+}
+
 export function resolveCli(cli: string, args: string[] = []): ResolvedSpawn {
   return resolveCliSpawn(cli, args);
 }
@@ -73,16 +89,20 @@ export function killCliTree(child: ChildProcess): void {
   if (!pid || child.exitCode !== null || child.signalCode !== null) return;
 
   if (process.platform === "win32") {
-    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err) => {
-      if (!err) return;
-      try {
-        // taskkill is unavailable or the tree lookup failed. At least stop
-        // the process we own instead of leaving the entire turn running.
-        child.kill();
-      } catch {
-        /* already gone */
-      }
-    });
+    trackedTreeStop(pid, () => new Promise<void>((resolve) => {
+      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err) => {
+        if (err) {
+          try {
+            // taskkill is unavailable or the tree lookup failed. At least stop
+            // the process we own instead of leaving the entire turn running.
+            child.kill();
+          } catch {
+            /* already gone */
+          }
+        }
+        resolve();
+      });
+    }));
     return;
   }
   try {
@@ -94,6 +114,17 @@ export function killCliTree(child: ChildProcess): void {
       /* already gone */
     }
   }
+  trackedTreeStop(pid, async () => {
+    await new Promise((resolve) => setTimeout(resolve, TREE_KILL_GRACE_MS));
+    try {
+      // The group may outlive its leader (for example an MCP proxy whose CLI
+      // already exited), so always address the process group, not `child`.
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      /* the whole group exited during the grace period */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
 }
 
 /** Per-turn broker channel: unix socket on POSIX, named pipe on Windows

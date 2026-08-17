@@ -25,6 +25,7 @@ import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import { isEffortLevel, type RuntimeEvent } from "./contracts.ts";
+import { drainCliTrees } from "./procs.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
@@ -2375,11 +2376,23 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
 });
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  server.closeAllConnections?.();
+  try {
     localVmIdle.cancel();
     routines?.stop();
     webhookIngress?.server.close();
-    void registry.disposeAll().finally(() => process.exit(0));
-  });
+    await registry.disposeAll();
+    await drainCliTrees();
+  } finally {
+    process.exit(0);
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => void shutdown());
 }
