@@ -1,12 +1,16 @@
 ---
 name: windows-release
-description: Build, verify, and publish the Windows desktop build (NSIS installer + latest.yml) to the openmausbot-releases repo. Use when cutting a release, shipping a new version to Windows users, or when a Windows user reports they are stuck on an old version. Windows only — does not cover the macOS dmg/notarization flow.
+description: Build, verify, and publish the Windows desktop build (NSIS installer + latest.yml) to the agent-harbor repo. Use when cutting a release, shipping a new version to Windows users, or when a Windows user reports they are stuck on an old version. Windows only — does not cover the macOS dmg/notarization flow.
 ---
 
 # Windows release
 
-Ships `OpenMausBot-<version>-setup.exe` and its update feed to
-[milind-soni/openmausbot-releases](https://github.com/milind-soni/openmausbot-releases).
+> **Not active yet.** Agent Harbor does not have an approved public, signed release channel. Build and verify
+> packages locally, but do not upload a release until the repository owner explicitly approves the release
+> version, destination, signing state, and public availability.
+
+Ships `Agent-Harbor-<version>-setup.exe` and its update feed to
+[LauraFlorey/agent-harbor](https://github.com/LauraFlorey/agent-harbor).
 
 **Scope: Windows only.** The macOS build is a separate flow (dmg + notarytool +
 staple) that must run on a Mac. This skill never touches mac artifacts — but see
@@ -41,10 +45,10 @@ Output in `release/`:
 
 | File | Purpose |
 |---|---|
-| `OpenMausBot-<version>-setup.exe` | the installer |
+| `Agent-Harbor-<version>-setup.exe` | the installer |
 | `latest.yml` | **the update feed** — see step 4 |
-| `OpenMausBot-<version>-setup.exe.blockmap` | differential updates |
-| `OpenMausBot-<version>-x64.zip` | portable, not used by the updater |
+| `Agent-Harbor-<version>-setup.exe.blockmap` | differential updates |
+| `Agent-Harbor-<version>-x64.zip` | portable, not used by the updater |
 
 ## 3. Verify before uploading
 
@@ -59,7 +63,7 @@ Get-Content release\win-unpacked\resources\app-update.yml  # feed config
 - Missing `server/index.js` → `utilityProcess.fork` fails → the 🐭 "Couldn't start
   the bot server" page.
 - Missing `ui/index.html` → server has nothing to serve → black window.
-- `app-update.yml` must point at `milind-soni/openmausbot-releases` and, while the
+- `app-update.yml` must point at `LauraFlorey/agent-harbor` and, while the
   build is unsigned, **must not contain `publisherName`** — electron-updater would
   reject every update as untrusted.
 
@@ -67,7 +71,7 @@ Then smoke-test the installer itself. Run it, and confirm:
 
 1. It installs per-user with no UAC prompt and launches.
 2. The chat window renders (not the error page). Server logs land in
-   `%APPDATA%\OpenMausBot\logs\server.log`.
+   `%APPDATA%\Agent-Harbor\logs\server.log`.
 3. The model picker lists at least one provider — this exercises the `.cmd`-shim
    resolution in `server/procs.ts`, which only ever runs for real on Windows.
 4. No update popup appears on launch. Background check failures are silent by
@@ -79,21 +83,21 @@ Upload to the **same tag** as the macOS release for that version, so one release
 carries both platforms.
 
 ```powershell
-Copy-Item release/OpenMausBot-<version>-setup.exe release/OpenMausBot-setup.exe
-gh release upload v<version> --repo milind-soni/openmausbot-releases `
-  release/OpenMausBot-<version>-setup.exe `
-  release/OpenMausBot-setup.exe `
-  release/OpenMausBot-<version>-setup.exe.blockmap `
+Copy-Item release/Agent-Harbor-<version>-setup.exe release/Agent-Harbor-setup.exe
+gh release upload v<version> --repo LauraFlorey/agent-harbor `
+  release/Agent-Harbor-<version>-setup.exe `
+  release/Agent-Harbor-setup.exe `
+  release/Agent-Harbor-<version>-setup.exe.blockmap `
   release/latest.yml
 ```
 
 Both names are required, for different consumers:
 
-- **`OpenMausBot-<version>-setup.exe`** is what `latest.yml` references by name and
+- **`Agent-Harbor-<version>-setup.exe`** is what `latest.yml` references by name and
   sha512. The auto-updater downloads exactly this.
-- **`OpenMausBot-setup.exe`** is a byte-identical copy that gives the README's
-  `/releases/latest/download/OpenMausBot-setup.exe` button a stable URL. This
-  mirrors `OpenMausBot.dmg` sitting beside `OpenMausBot-<version>.dmg`.
+- **`Agent-Harbor-setup.exe`** is a byte-identical copy that gives the README's
+  `/releases/latest/download/Agent-Harbor-setup.exe` button a stable URL. This
+  mirrors `Agent-Harbor.dmg` sitting beside `Agent-Harbor-<version>.dmg`.
 
 ### latest.yml is not optional
 

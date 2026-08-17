@@ -84,7 +84,7 @@ function optionalString(value: unknown, field: string, max: number): string | un
 /** Parse an untrusted shared file into the small, portable subset we support. */
 export function parseTeamManifest(value: unknown): TeamManifestV1 {
   if (!isRecord(value)) throw new Error("This is not a team file");
-  if (value.format !== TEAM_MANIFEST_FORMAT) throw new Error("This is not an OpenMaus team file");
+  if (value.format !== TEAM_MANIFEST_FORMAT) throw new Error("This is not an Agent Harbor team file");
   if (value.version !== TEAM_MANIFEST_VERSION) {
     throw new Error(`Team file version ${String(value.version)} is not supported`);
   }

@@ -36,7 +36,7 @@ export function parseTeamManifest(value) {
     if (!isRecord(value))
         throw new Error("This is not a team file");
     if (value.format !== TEAM_MANIFEST_FORMAT)
-        throw new Error("This is not an OpenMaus team file");
+        throw new Error("This is not an Agent Harbor team file");
     if (value.version !== TEAM_MANIFEST_VERSION) {
         throw new Error(`Team file version ${String(value.version)} is not supported`);
     }

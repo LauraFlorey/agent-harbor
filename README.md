@@ -1,12 +1,12 @@
-> ⚠️ **No affiliation with any cryptocurrency.** OpenMausBot has no token. Any coin using the OpenMausBot, Maus, or SupaMaus name is not created, endorsed, or affiliated with this project or its maintainer. I have received no tokens, payment, or allocation from anyone, and I will not be endorsing any token.
+> ⚠️ **No affiliation with any cryptocurrency.** Agent Harbor has no token. Any coin using the Agent Harbor name is not created, endorsed, or affiliated with this project or its maintainer.
 
 <div align="center">
 
-# OpenMausBot
+# Agent Harbor
 
 **Your own team of AI bots, in a chat app.**
 
-<sub>An open-source version of **Grok Bot** — bring-your-own-agent, local-first, on the models you already have.</sub>
+<sub>A local-first, open-source agent workspace — bring your own agents and choose how each one works.</sub>
 
 Every bot in the sidebar is a real agent — Claude or Codex running locally under the hood — with its own
 personality, its own model, its own cloud computer, and its own connected apps.
@@ -20,20 +20,12 @@ Talk to them like contacts. Watch them work. Approve what matters.
 
 <br>
 
-<a href="https://github.com/milind-soni/openmausbot-releases/releases/latest/download/OpenMausBot.dmg">
-  <img src="https://img.shields.io/github/v/release/milind-soni/openmausbot-releases?style=for-the-badge&label=%E2%AC%87%EF%B8%8F%20%20Download%20for%20macOS&labelColor=070707&color=1084fe&cacheSeconds=300" alt="Download the latest OpenMausBot for macOS (.dmg)" height="40">
-</a>
-&nbsp;
-<a href="https://github.com/milind-soni/openmausbot-releases/releases/latest/download/OpenMausBot-setup.exe">
-  <img src="https://img.shields.io/github/v/release/milind-soni/openmausbot-releases?style=for-the-badge&label=%E2%AC%87%EF%B8%8F%20%20Download%20for%20Windows&labelColor=070707&color=4cc2ff&cacheSeconds=300" alt="Download the latest OpenMausBot for Windows (.exe)" height="40">
-</a>
-
-<sub>macOS: Apple silicon · signed & notarized · one-click .dmg &nbsp;·&nbsp; Windows: 64-bit · one-click installer, no admin rights &nbsp;·&nbsp; both always the latest · [all releases](https://github.com/milind-soni/openmausbot-releases/releases)</sub>
+<sub>Development preview: build from source while Agent Harbor packaging and release signing are established.</sub>
 
 <br>
 <br>
 
-<img src="docs/screenshots/hero.png" alt="OpenMausBot — a Telegram-style chat app where every chat is a real AI agent" width="900">
+<img src="docs/screenshots/hero.png" alt="Agent Harbor — a Telegram-style chat app where every chat is a real AI agent" width="900">
 
 </div>
 
@@ -41,7 +33,7 @@ Talk to them like contacts. Watch them work. Approve what matters.
 
 ## Why
 
-One assistant in one box is the wrong shape for agents. OpenMausBot is an open-source take on **Grok Bot** —
+One assistant in one box is the wrong shape for agents. Agent Harbor is an open-source take on **Grok Bot** —
 it keeps the idea (AI as a *messaging app*: a roster of bots you chat with, each with its own personality,
 memory of its thread, model, computer, and apps) and rebuilds it open, local-first, and on the agents you
 already have:
@@ -52,6 +44,9 @@ already have:
   events live in `~/.openmausbot`, not a cloud.
 - **Agents with hands.** Each bot can get a real computer — a cloud Linux desktop it drives while you watch
   live, or your own Mac — plus 500+ apps through Composio Connect.
+
+The legacy data path and other machine-facing identifiers intentionally remain stable during the visible
+rebrand. See the [Agent Harbor rebrand boundary](docs/agent-harbor-rebrand.md) for the compatibility contract.
 
 ## Features
 
@@ -138,7 +133,7 @@ Bring your own ElevenLabs key — paste it once in App Settings, pick a voice, a
 Give a bot its own voice and a room stops sounding like one person.
 
 **Also in the box:** streaming replies with tool-run activity chips · native macOS dictation from the
-composer mic (on-device Apple speech recognition — desktop app) · SupaMaus cursor mascots with role-aware
+composer mic (on-device Apple speech recognition — desktop app) · animated cursor agent avatars with role-aware
 expressions · screenshots of the bot's work folded into the transcript.
 
 ## How it works
@@ -187,21 +182,12 @@ branches throughout the application.
 
 ## Quick start
 
-**Released builds:** the harness server is embedded, so macOS and Windows need no separate server setup.
-
-| | Download | Install |
-|---|---|---|
-| **macOS** (Apple silicon) | [OpenMausBot.dmg](https://github.com/milind-soni/openmausbot-releases/releases/latest/download/OpenMausBot.dmg) | Drag it to Applications, open it. Signed & notarized. |
-| **Windows** (x64) | [OpenMausBot-setup.exe](https://github.com/milind-soni/openmausbot-releases/releases/latest/download/OpenMausBot-setup.exe) | Run it — one-click, per-user, no admin rights. The installer isn't code-signed yet, so SmartScreen shows "unknown publisher": **More info → Run anyway**. |
-
-**Ubuntu Desktop beta:** build the `.deb` or AppImage from source using the commands below. Release downloads
-will be linked here once Linux publishing is enabled. See [the Ubuntu Desktop guide](docs/linux-desktop.md) for
-installation, capabilities, and troubleshooting.
+Agent Harbor does not publish signed binaries yet. Build the desktop app from source while the release channel is prepared.
 
 **From source:**
 
 ```sh
-git clone https://github.com/milind-soni/OpenMausBot && cd OpenMausBot
+git clone https://github.com/LauraFlorey/agent-harbor.git && cd agent-harbor
 pnpm install
 
 pnpm dev:server    # harness server → 127.0.0.1:8799
@@ -232,7 +218,7 @@ pnpm package:linux    # Ubuntu x64: .deb + AppImage; no Swift required
 
 Unavailable native features fail closed on Ubuntu without blocking chat or cloud features. Linux local computer
 control, Wayland capture/automation, dictation, and ARM64 are tracked in
-[#29](https://github.com/milind-soni/OpenMausBot/issues/29) and are not claimed by the baseline package.
+[upstream issue #29](https://github.com/milind-soni/OpenMausBot/issues/29) and are not claimed by the baseline package.
 
 These credentials are optional — local chat works without them. Paste a key once in **App Settings** (gear
 in the sidebar footer) when you want to enable its integration:
@@ -262,19 +248,19 @@ Routines can run once or on selected weekdays, using either a MAUS's configured 
 Cloud VM runner. Webhook triggers are independent from schedules but reuse the same queued task executor
 and calendar receipts.
 
-OpenMausBot starts a webhook-only receiver on `127.0.0.1:8800` by default (or one port above `OMB_PORT`).
+Agent Harbor starts a webhook-only receiver on `127.0.0.1:8800` by default (or one port above `OMB_PORT`).
 Set `OMB_WEBHOOK_PORT` to choose another port. A webhook secret is shown once when the trigger is created
 or rotated. Bearer authentication is recommended so the secret stays out of request URLs and most access
 logs; a single capability URL remains available for senders that cannot configure headers. The receiver
 exposes only `/health` and secret `/hooks/...` endpoints; it never exposes the app's broader API.
-OpenMausBot must remain running to accept a delivery. For public internet delivery, proxy only this
+Agent Harbor must remain running to accept a delivery. For public internet delivery, proxy only this
 dedicated receiver through a hosted relay or a tool such as Tailscale Funnel.
 
 ## Status
 
 Early but real — the loop works end to end: message → agent → streamed reply → tools → approvals →
-computer use. macOS and Windows have released builds; Ubuntu 24.04 x64 packages are in beta with the
-capability limits above. Rough edges to expect: hosted/mobile connectivity is still being built, and webhook
+computer use. Source builds are working on macOS, Windows, and Ubuntu 24.04 x64; signed Agent Harbor releases
+are not published yet. Rough edges to expect: hosted/mobile connectivity is still being built, and webhook
 triggers currently use the local receiver rather than an always-on hosted relay.
 Voice needs an ElevenLabs key, and calls are macOS-only for now (they ride the same on-device dictation as
 the composer mic) — see [`docs/voice-mode.md`](docs/voice-mode.md) for the design and the known gaps.
@@ -284,8 +270,9 @@ small; adding a provider is one file in [`server/drivers/`](server/drivers/) plu
 
 ## License
 
-[MIT](LICENSE) © 2026 Milind Soni and contributors.
+[MIT](LICENSE) © 2026 Milind Soni, Laura Florey, and contributors.
 
-OpenMausBot is an independent, open-source project inspired by Grok Bot. It is
+Agent Harbor is based on the MIT-licensed [OpenMausBot](https://github.com/milind-soni/OpenMausBot)
+project and preserves its attribution. Agent Harbor is an independent, open-source project inspired by Grok Bot. It is
 not affiliated with, endorsed by, or associated with xAI; "Grok" is a trademark
 of its respective owner.

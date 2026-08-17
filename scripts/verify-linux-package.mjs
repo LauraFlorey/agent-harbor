@@ -35,7 +35,7 @@ function requireExecutable(file) {
 const appImage = exactlyOne(".AppImage");
 const deb = exactlyOne(".deb");
 const unpacked = path.join(releaseDir, "linux-unpacked");
-const executable = path.join(unpacked, "openmausbot");
+const executable = path.join(unpacked, "agent-harbor");
 const resources = path.join(unpacked, "resources");
 
 requireExecutable(appImage);
@@ -55,16 +55,16 @@ const fields = execFileSync(
   { encoding: "utf8" },
 );
 for (const expected of [
-  "Package: openmausbot",
+  "Package: agent-harbor",
   "Architecture: amd64",
-  "Maintainer: Milind Soni",
+  "Maintainer: Laura Florey",
   "Section: utils",
   "Priority: optional",
 ]) {
   if (!fields.includes(expected)) fail(`DEB metadata is missing ${JSON.stringify(expected)}`);
 }
 
-const extracted = mkdtempSync(path.join(tmpdir(), "omb-deb-verify-"));
+const extracted = mkdtempSync(path.join(tmpdir(), "agent-harbor-deb-verify-"));
 try {
   execFileSync("dpkg-deb", ["--extract", deb, extracted]);
   const desktopFile = path.join(
@@ -82,15 +82,15 @@ try {
     "hicolor",
     "scalable",
     "apps",
-    "openmausbot.svg",
+    "agent-harbor.svg",
   );
   requireFile(desktopFile);
   requireFile(scalableIcon);
   const desktop = readFileSync(desktopFile, "utf8");
   for (const expected of [
-    "Name=OpenMausBot",
-    "Exec=/opt/OpenMausBot/openmausbot %U",
-    "Icon=openmausbot",
+    "Name=Agent Harbor",
+    'Exec="/opt/Agent Harbor/agent-harbor" %U',
+    "Icon=agent-harbor",
     "StartupWMClass=com.openmausbot.app",
     "Categories=Utility;",
   ]) {

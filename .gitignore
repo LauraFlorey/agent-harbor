@@ -8,5 +8,6 @@ dist-native
 *.tsbuildinfo
 electron/resources/speech-helper
 electron/resources/OpenMausBot Speech.app
+electron/resources/Agent Harbor Speech.app
 release
 .omb-scratch

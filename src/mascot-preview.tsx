@@ -132,7 +132,7 @@ function Tuner({
           state={state}
           expression={expression}
           size={300}
-          label={`${state} maus`}
+          label={`${state} agent avatar`}
           faceX={tuning.faceX}
           faceY={tuning.faceY}
           faceScale={tuning.faceScale}
@@ -311,7 +311,7 @@ function Preview() {
       <header className="preview-header">
         <div>
           <p className="eyebrow">Morphing face engine · 25 expressions · 39 states</p>
-          <h1>Maus motion library</h1>
+          <h1>Agent avatar motion library</h1>
           <p className="intro">
             The app&rsquo;s lit body with the face engine behind it. Expressions morph on a
             spring, blink on each state&rsquo;s own rhythm, and the eyes wrap around an implied
@@ -377,7 +377,7 @@ function Preview() {
                 </div>
                 {PICKABLE_STATES.map((s) => (
                   <div className="mascot-cell" key={`${c}-${s}`}>
-                    <MausAvatar color={c} state={s} size={86} label={`${c} ${s} maus`} />
+                    <MausAvatar color={c} state={s} size={86} label={`${c} ${s} agent avatar`} />
                   </div>
                 ))}
               </div>

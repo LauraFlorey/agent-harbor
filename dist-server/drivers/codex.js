@@ -11,9 +11,10 @@
 // and falls back to a fresh thread/start.
 import { homedir } from "node:os";
 import { buildAgentEnvironment } from "../agent-environment.js";
-import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.js";
+import { describeSpawnFailure, killCliTree, spawnCli } from "../procs.js";
 import { newEventId, newId } from "../contracts.js";
 import { augmentedPath } from "../env-path.js";
+import { resolveCompatibleCodexCli } from "./codex-cli.js";
 import { appendNative } from "./native.js";
 const DRIVER_KIND = "codex";
 // catalog ported from upstream packages/contracts/src/model.ts
@@ -33,7 +34,7 @@ function decodeConfig(raw) {
     };
 }
 const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
-const DENY_TIMEOUT_NOTE = "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+const DENY_TIMEOUT_NOTE = "Agent Harbor: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 export const CodexDriver = {
     driverKind: DRIVER_KIND,
     metadata: { displayName: "Codex", supportsMultipleInstances: true },
@@ -54,6 +55,19 @@ export const CodexDriver = {
         const { instanceId, config } = input;
         const listeners = new Set();
         const active = new Map();
+        let cliResolution = null;
+        const resolveCodexCli = async () => {
+            if (!cliResolution) {
+                const env = buildAgentEnvironment({ overrides: { PATH: augmentedPath() } });
+                cliResolution = resolveCompatibleCodexCli(config.cli, env);
+            }
+            const result = await cliResolution;
+            // A newly installed or updated CLI should become visible when the user
+            // checks the engine again, without requiring an app restart.
+            if (!result.ok)
+                cliResolution = null;
+            return result;
+        };
         const emit = (event) => {
             for (const l of [...listeners])
                 l(event);
@@ -70,12 +84,23 @@ export const CodexDriver = {
             if (active.has(threadId))
                 throw new Error("a turn is already running on this thread");
             const turnId = newId();
+            const cli = await resolveCodexCli();
+            // Re-check after the asynchronous compatibility probe so simultaneous
+            // callers cannot both start a turn on the same thread.
+            if (active.has(threadId))
+                throw new Error("a turn is already running on this thread");
+            if (!cli.ok) {
+                emit({ ...base(threadId, turnId), type: "turn.started" });
+                emit({ ...base(threadId, turnId), type: "runtime.error", message: cli.reason, setup: cli.setup });
+                emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "setup_error", cost: null });
+                return { turnId };
+            }
             // The CLI owns its own ChatGPT login. Starting from the shared OS
             // allowlist keeps API keys and unrelated service credentials out.
             const env = buildAgentEnvironment({
                 overrides: { PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" },
             });
-            const child = spawnCli(config.cli, ["app-server"], {
+            const child = spawnCli(cli.command, ["app-server"], {
                 cwd: turn.cwd ?? homedir(),
                 env,
                 stdio: ["pipe", "pipe", "pipe"],
@@ -119,7 +144,7 @@ export const CodexDriver = {
                     return;
                 state.settled = true;
                 for (const finish of [...asks.values()])
-                    finish("deny", "OpenMausBot: the turn ended");
+                    finish("deny", "Agent Harbor: the turn ended");
                 for (const p of rpcPending.values())
                     p.reject(new Error("turn settled"));
                 rpcPending.clear();
@@ -316,7 +341,7 @@ export const CodexDriver = {
                     stderr = stderr.slice(-8192);
             });
             child.on("error", (e) => {
-                emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+                emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, cli.command) });
                 settle(false, "spawn_error");
             });
             child.on("close", (code) => {
@@ -385,12 +410,10 @@ export const CodexDriver = {
             return { turnId };
         };
         const snapshot = async () => {
-            const version = await new Promise((resolve) => {
-                execCli(config.cli, ["--version"], { timeout: 8000, env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }) }, (err, stdout) => resolve(err ? null : stdout.trim()));
-            });
-            if (!version)
-                return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-            return { state: "available", version };
+            const cli = await resolveCodexCli();
+            if (!cli.ok)
+                return { state: "unavailable", reason: cli.reason };
+            return { state: "available", version: cli.version ?? "compatible app-server" };
         };
         return {
             instanceId,

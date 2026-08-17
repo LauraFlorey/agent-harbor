@@ -31,7 +31,7 @@ export function UpdateBanner() {
 
   const title =
     s.status === "available"
-      ? `OpenMausBot ${s.version} is available`
+      ? `Agent Harbor ${s.version} is available`
       : s.status === "downloading"
         ? `Downloading ${s.version ?? "update"}…`
         : s.status === "downloaded"

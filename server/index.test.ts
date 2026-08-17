@@ -53,7 +53,7 @@ beforeAll(async () => {
   // a fleet of exactly one unknown driver: no CLI probes, no network
   mkdirSync(join(home, ".openmausbot"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
-  writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Packaged OpenMausBot</title>");
+  writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Packaged Agent Harbor</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body { color: white; }");
   writeFileSync(
     join(home, ".openmausbot", "config.json"),
@@ -131,7 +131,7 @@ describe("harness HTTP API", () => {
     const root = await fetch(`${BASE}/`);
     expect(root.status).toBe(200);
     expect(root.headers.get("content-type")).toBe("text/html");
-    expect(await root.text()).toContain("Packaged OpenMausBot");
+    expect(await root.text()).toContain("Packaged Agent Harbor");
 
     const asset = await fetch(`${BASE}/assets/smoke.css`);
     expect(asset.status).toBe(200);
@@ -141,7 +141,7 @@ describe("harness HTTP API", () => {
     const spa = await fetch(`${BASE}/settings/desktop`);
     expect(spa.status).toBe(200);
     expect(spa.headers.get("content-type")).toBe("text/html");
-    expect(await spa.text()).toContain("Packaged OpenMausBot");
+    expect(await spa.text()).toContain("Packaged Agent Harbor");
 
     const unknownApi = await api("GET", "/api/not-a-real-route");
     expect(unknownApi.status).toBe(404);
