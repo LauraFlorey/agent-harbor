@@ -31,23 +31,43 @@ describe("secret stores", () => {
     expect(store.get("box.token")).toBeUndefined();
   });
 
-  it("passes Keychain writes on stdin rather than exposing them in argv", () => {
+  it("passes Keychain writes privately to the prompted writer", () => {
     const calls: Array<{ args: string[]; input?: string }> = [];
+    const writes: Array<{ account: string; service: string; value: string }> = [];
     const runner = (args: string[], input?: string): SecurityCommandResult => {
       calls.push({ args, input });
       if (args[0] === "find-generic-password") return { status: 0, stdout: "stored-value\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
-    const store = createKeychainSecretStore(runner, "test.openmausbot");
+    const writer = (account: string, service: string, value: string): SecurityCommandResult => {
+      writes.push({ account, service, value });
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const store = createKeychainSecretStore(runner, "test.openmausbot", writer);
 
     store.set("composio.key", "credential-that-must-not-be-in-argv");
-    expect(calls[0].args.join(" ")).not.toContain("credential-that-must-not-be-in-argv");
-    expect(calls[0].args.at(-1)).toBe("-w");
-    expect(calls[0].input).toBe(
-      "credential-that-must-not-be-in-argv\ncredential-that-must-not-be-in-argv\n",
-    );
+    expect(calls).toEqual([]);
+    expect(writes).toEqual([
+      {
+        account: "composio.key",
+        service: "test.openmausbot",
+        value: "credential-that-must-not-be-in-argv",
+      },
+    ]);
     expect(store.get("composio.key")).toBe("stored-value");
     store.delete("composio.key");
+  });
+
+  it("turns a prompted Keychain timeout into actionable guidance", () => {
+    const store = createKeychainSecretStore(
+      () => ({ status: 0, stdout: "", stderr: "" }),
+      "test.openmausbot",
+      () => ({ status: 124, stdout: "", stderr: "" }),
+    );
+
+    expect(() => store.set("openrouter.apiKey", "test-value")).toThrow(
+      "macOS Keychain write timed out. Unlock your login Keychain and try again.",
+    );
   });
 
   it("treats a missing Keychain item as unconfigured", () => {
