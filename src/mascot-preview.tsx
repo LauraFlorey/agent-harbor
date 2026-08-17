@@ -355,7 +355,7 @@ function Preview() {
             <p className="eyebrow">Identity system · 100 combinations</p>
             <h2 id="expression-heading">Colors and states</h2>
           </div>
-          <p>Move your pointer over any Maus to test the responsive eyes.</p>
+          <p>Move your pointer over any agent avatar to test the responsive eyes.</p>
         </div>
 
         <div className="matrix-wrap">
