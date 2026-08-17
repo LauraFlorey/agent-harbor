@@ -251,7 +251,7 @@ pnpm package:linux # Ubuntu x64 .deb + AppImage → release/
 
 ### Routines and webhook triggers
 
-Routines can run once or on selected weekdays, using either a MAUS's configured model/computer or the
+Routines can run once or on selected weekdays, using either an agent's configured model/computer or the
 Cloud VM runner. Webhook triggers are independent from schedules but reuse the same queued task executor
 and calendar receipts.
 

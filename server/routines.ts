@@ -332,7 +332,7 @@ export class RoutineManager {
     receivedAt: number;
   }): RoutineRun {
     if (this.options.botState(input.botId) === "missing") {
-      throw Object.assign(new Error("The assigned MAUS no longer exists"), { status: 410 });
+      throw Object.assign(new Error("The assigned agent no longer exists"), { status: 410 });
     }
     const run: RoutineRun = {
       id: randomUUID(),
