@@ -34,6 +34,11 @@ const EXPECTED: Record<string, RoutingCapabilities> = {
   kimiAgent: RESUME_LOCAL_MCP,
   droidAgent: RESUME_LOCAL_MCP,
   opencodeGo: RESUME_LOCAL_MCP,
+  openrouter: {
+    contextMode: "transcript-replay",
+    executionMode: "local-process",
+    computerUse: "none",
+  },
   claudeAgent: RESUME_LOCAL_MCP,
   codex: RESUME_LOCAL_NONE,
   antigravityAgent: RESUME_LOCAL_NONE,

@@ -6,6 +6,7 @@ import { writeFileAtomic } from "./atomic.ts";
 
 export const SECRET_IDS = [
   "xai.key",
+  "openrouter.apiKey",
   "composio.key",
   "composio.apiKey",
   "box.token",

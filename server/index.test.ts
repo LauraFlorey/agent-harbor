@@ -540,6 +540,28 @@ describe("harness HTTP API", () => {
     expect(JSON.stringify(after.body)).not.toContain("opencode-secret");
   });
 
+  it("stores OpenRouter credentials as a configured-only status", async () => {
+    const put = await api("PUT", "/api/config", { openrouter: { apiKey: "openrouter-secret" } });
+    expect(put.status).toBe(200);
+    expect(put.body.openrouter).toEqual({ configured: true });
+    expect(JSON.stringify(put.body)).not.toContain("openrouter-secret");
+
+    const after = await api("GET", "/api/config");
+    expect(after.body.openrouter).toEqual({ configured: true });
+    expect(JSON.stringify(after.body)).not.toContain("openrouter-secret");
+    expect(readFileSync(join(home, ".openmausbot", "config.json"), "utf8")).not.toContain("openrouter-secret");
+  });
+
+  it("rejects a malformed OpenRouter API key patch", async () => {
+    const bad = await api("PUT", "/api/config", { openrouter: { apiKey: 123 } });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain("openrouter.apiKey");
+
+    const array = await api("PUT", "/api/config", { openrouter: [] });
+    expect(array.status).toBe(400);
+    expect(array.body.error).toContain("openrouter");
+  });
+
   it("rejects a non-string OpenCode Go API key", async () => {
     const bad = await api("PUT", "/api/config", { opencodeGo: { apiKey: 123 } });
     expect(bad.status).toBe(400);

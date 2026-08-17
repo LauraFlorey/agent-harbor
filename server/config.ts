@@ -10,6 +10,8 @@ import { createPlatformSecretStore, type SecretId, type SecretStore } from "./se
 
 export interface AppConfig {
   xai?: { key?: string; url?: string };
+  /** OpenRouter key; persisted write-only and exposed only to its driver. */
+  openrouter?: { apiKey?: string; url?: string };
   /** key = ck_… Connect consumer key (connections + agent tools);
    * apiKey = ak_… project API key — optional, unlocks the full toolkit
    * catalog with official logos in the plugins marketplace. */
@@ -73,9 +75,10 @@ export function ensureDirs() {
   secureExistingState();
 }
 
-type ConfigSection = "xai" | "composio" | "box" | "opencodeGo" | "tts";
+type ConfigSection = "xai" | "openrouter" | "composio" | "box" | "opencodeGo" | "tts";
 const SECRET_FIELDS: Array<{ section: ConfigSection; field: string; id: SecretId; env?: string }> = [
   { section: "xai", field: "key", id: "xai.key", env: "XAI_API_KEY" },
+  { section: "openrouter", field: "apiKey", id: "openrouter.apiKey", env: "OPENROUTER_API_KEY" },
   { section: "composio", field: "key", id: "composio.key", env: "COMPOSIO_KEY" },
   { section: "composio", field: "apiKey", id: "composio.apiKey", env: "COMPOSIO_API_KEY" },
   { section: "box", field: "token", id: "box.token", env: "BOX_TOKEN" },
@@ -135,6 +138,7 @@ export function loadConfig(): AppConfig {
   const cfg = disk as AppConfig;
   const values = new Map(SECRET_FIELDS.map((descriptor) => [descriptor.id, storedSecret(secrets, descriptor)]));
   cfg.xai = { ...cfg.xai, key: values.get("xai.key") };
+  cfg.openrouter = { ...cfg.openrouter, apiKey: values.get("openrouter.apiKey") };
   cfg.composio = {
     ...cfg.composio,
     key: values.get("composio.key"),
@@ -168,7 +172,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     else secrets.delete(descriptor.id);
     delete section[descriptor.field];
   }
-  for (const key of ["xai", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
+  for (const key of ["xai", "openrouter", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
     const section = objectSection(sanitized[key]);
     if (section && Object.keys(section).length) {
       disk[key] = { ...objectSection(disk[key]), ...section };
@@ -195,7 +199,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // CLI"), so a default `gemini` instance could only ever show unavailable.
   // The driver stays registered for enterprise licences, which keep Gemini
   // CLI — `{"instances": {"gemini": {"driver": "geminiAgent"}}}` restores it.
-  const map: InstanceConfigMap =
+  const configured: InstanceConfigMap =
     cfg.instances && Object.keys(cfg.instances).length
       ? cfg.instances
       : {
@@ -204,13 +208,27 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
           droid: { driver: "droidAgent" },
           claude: { driver: "claudeAgent" },
           codex: { driver: "codex" },
+          openrouter: { driver: "openrouter" },
           antigravity: { driver: "antigravityAgent" },
           opencodeGo: { driver: "opencodeGo" },
           computer: { driver: "boxAgent" },
         };
+  const map: InstanceConfigMap = Object.fromEntries(
+    Object.entries(configured).map(([id, entry]) => [id, { ...entry, environment: { ...entry.environment } }]),
+  );
+  // Existing installations may already have a customized fleet. Saving an
+  // OpenRouter key should still make the provider appear without rewriting
+  // or replacing any of those user-owned instance entries.
+  if (cfg.openrouter?.apiKey && !Object.values(map).some((entry) => entry.driver === "openrouter")) {
+    const id = map.openrouter ? "openrouter-api" : "openrouter";
+    map[id] = { driver: "openrouter" };
+  }
   for (const entry of Object.values(map)) {
     entry.environment = {
       ...(cfg.xai?.key ? { XAI_API_KEY: cfg.xai.key } : {}),
+      ...(entry.driver === "openrouter" && cfg.openrouter?.apiKey
+        ? { OPENROUTER_API_KEY: cfg.openrouter.apiKey }
+        : {}),
       ...(cfg.box?.token ? { BOX_TOKEN: cfg.box.token } : {}),
       ...(entry.driver === "opencodeGo" && cfg.opencodeGo?.apiKey
         ? { OPENCODE_API_KEY: cfg.opencodeGo.apiKey }

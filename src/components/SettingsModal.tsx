@@ -206,6 +206,7 @@ export function SettingsModal() {
                 subtitle="Shared by all bots. Saving a key reloads providers instantly; keys are stored locally and never shown again."
               >
                 <div className="flex flex-col gap-4">
+                  <ApiKeyRow section="openrouter" />
                   <ApiKeyRow section="composio" />
                   <ApiKeyRow section="composioApi" />
                   <ApiKeyRow section="box" />

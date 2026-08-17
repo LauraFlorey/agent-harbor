@@ -1212,6 +1212,7 @@ function startGroupTurn(groupId: string, text: string) {
 function configStatus() {
   return {
     xai: { configured: Boolean(cfg.xai?.key) },
+    openrouter: { configured: Boolean(cfg.openrouter?.apiKey) },
     composio: { configured: Boolean(cfg.composio?.key), apiKeyConfigured: Boolean(cfg.composio?.apiKey) },
     box: { configured: Boolean(cfg.box?.token) },
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
@@ -2199,6 +2200,20 @@ const server = createServer(async (req, res) => {
     }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
+      const rawOpenRouter = body.openrouter;
+      if (
+        rawOpenRouter !== undefined
+        && (rawOpenRouter === null || typeof rawOpenRouter !== "object" || Array.isArray(rawOpenRouter))
+      ) {
+        return json(res, 400, { error: "openrouter must be an object" });
+      }
+      if (
+        rawOpenRouter
+        && Object.prototype.hasOwnProperty.call(rawOpenRouter, "apiKey")
+        && typeof (rawOpenRouter as { apiKey?: unknown }).apiKey !== "string"
+      ) {
+        return json(res, 400, { error: "openrouter.apiKey must be a string" });
+      }
       const rawOpenCode = body.opencodeGo;
       if (
         rawOpenCode !== undefined
@@ -2214,7 +2229,7 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "opencodeGo.apiKey must be a string" });
       }
       const patch: Record<string, object> = {};
-      for (const key of ["xai", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
+      for (const key of ["xai", "openrouter", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
         if (body[key] && typeof body[key] === "object") patch[key] = body[key];
       }
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
