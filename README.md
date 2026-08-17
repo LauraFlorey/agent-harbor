@@ -133,7 +133,7 @@ Bring your own ElevenLabs key — paste it once in App Settings, pick a voice, a
 Give a bot its own voice and a room stops sounding like one person.
 
 **Also in the box:** streaming replies with tool-run activity chips · native macOS dictation from the
-composer mic (on-device Apple speech recognition — desktop app) · SupaMaus cursor mascots with role-aware
+composer mic (on-device Apple speech recognition — desktop app) · animated cursor agent avatars with role-aware
 expressions · screenshots of the bot's work folded into the transcript.
 
 ## How it works

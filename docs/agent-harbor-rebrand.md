@@ -7,6 +7,7 @@ permissions, or protocol compatibility.
 ## Changed in the first rebrand
 
 - app, window, onboarding, update, error, permission, and agent-facing copy
+- Agent Harbor's beacon-and-harbor product mark and native application icons
 - package name, product name, installer names, Linux executable, and desktop display name
 - native speech helper display name and packaged bundle filename
 - repository metadata, source-build instructions, and current user documentation
@@ -31,3 +32,5 @@ container state, remote helpers, and existing configuration continue to work.
 The `upstream` Git remote remains fetch-only and points to OpenMausBot. Agent Harbor preserves the upstream MIT
 license and attribution. Rebrand commits should stay focused so future upstream changes can still be reviewed
 and merged without mixing product identity with unrelated feature work.
+
+The visual system and asset sources are documented in [brand-identity.md](brand-identity.md).

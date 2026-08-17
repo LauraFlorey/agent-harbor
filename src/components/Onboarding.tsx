@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, AlertTriangle, Loader2, Mic } from "lucide-react";
-import { MausAvatar } from "./Avatar";
 import { identifyEmail, setEmailGateDone, track } from "@/lib/analytics";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { EngineSetup } from "./EngineSetup";
@@ -144,7 +143,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       <div className="flex w-[460px] flex-col rounded-2xl border border-hairline/40 bg-panel p-8">
         {step === 0 && (
           <div className="flex flex-col items-center">
-            <MausAvatar color="green" state="happy" size={72} />
+            <img src="/app-icon.svg" alt="" className="size-[72px]" />
             <h1 className="mt-4 text-[20px] font-semibold text-ink">Welcome to Agent Harbor</h1>
             <p className="mt-1.5 text-center text-[14px] leading-relaxed text-ink-secondary">
               Bots that do real work on their own computer. Tell us who you are

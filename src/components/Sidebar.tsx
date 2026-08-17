@@ -270,7 +270,7 @@ function importPreview(manifest: unknown): PendingTeamImport {
     throw new Error("This file does not contain a team.");
   }
   const root = manifest as Record<string, unknown>;
-  if (root.format !== "openmaus.team") throw new Error("This is not an OpenMaus team file.");
+  if (root.format !== "openmaus.team") throw new Error("This is not an Agent Harbor team file.");
   if (root.version !== 1) throw new Error(`Team file version ${String(root.version)} is not supported.`);
   if (!root.team || typeof root.team !== "object" || Array.isArray(root.team)) {
     throw new Error("This team file is missing its team definition.");
@@ -950,7 +950,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     >
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
-        className="flex items-center justify-between px-4 pt-3.5 pb-1"
+        className="relative flex items-center justify-between px-4 pt-3.5 pb-1"
         style={macInset ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined}
       >
         {macInset ? (
@@ -962,6 +962,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <span className="size-3 rounded-full bg-[#28c840]" />
           </div>
         ) : <div />}
+        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
+          <img src="/app-icon.svg" alt="" className="size-[22px]" />
+          <span className="whitespace-nowrap text-[13px] font-semibold tracking-[-0.01em] text-ink">
+            Agent Harbor
+          </span>
+        </div>
         <div
           className="relative"
           style={macInset ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined}
@@ -1031,7 +1037,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         accept=".json,.mausteam.json,application/json"
         onChange={(event) => void chooseTeamFile(event)}
         className="hidden"
-        aria-label="Choose an OpenMaus team file"
+        aria-label="Choose an Agent Harbor team file"
       />
 
       {/* Search */}
