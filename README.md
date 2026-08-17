@@ -69,10 +69,10 @@ providers dimmed with the reason. Switch a bot's model mid-conversation.
 </td>
 <td width="50%" valign="top">
 
-### 🖥️ Every bot gets a computer
+### 🖥️ Give a bot a computer
 
-Open the Computer panel and the bot's cloud desktop spins up on its own — live screen preview while it
-works, "Open desktop" to take over in your browser, or point the bot at *this Mac* instead.
+Computer access starts off. Explicitly give a bot a cloud desktop, the isolated Local VM, or this computer —
+with a live preview while it works and an "Open desktop" handoff when available.
 
 <img src="docs/screenshots/computer-panel.png" alt="Computer panel with live screen preview" width="100%">
 
@@ -85,6 +85,9 @@ works, "Open desktop" to take over in your browser, or point the bot at *this Ma
 
 Shell commands, file edits, and questions surface as inline cards — Allow / Deny / answer in chat. A
 permission broker turns every risky action into a decision you make, for cloud and local computers alike.
+
+Local provider CLIs start in a private workspace for that bot. Starting them in your home folder and
+attaching the host desktop are separate, confirmed per-bot choices.
 
 <img src="docs/screenshots/approval-card.png" alt="Approval and question cards in chat" width="100%">
 

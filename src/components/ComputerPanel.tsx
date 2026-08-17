@@ -2,8 +2,8 @@
 // whole flow: cloud → provision the box on open (idempotent) and preview
 // via SSE frames or a ~4s screenshot poll; local ("This Mac") → frames
 // come from the Electron main process (desktopCapturer over the preload
-// bridge — box endpoints are never touched); off → parked. Auto (unset)
-// prefers the cloud box when one exists, else local inside the app.
+// bridge — box endpoints are never touched); off → parked. Legacy unset
+// values also fail closed as off.
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
@@ -112,11 +112,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
         ? "the Local VM"
       : bot.computer === "local"
         ? "this computer"
-        : bot.computer === "off"
-          ? null
-          : phase === "ready"
-            ? "the cloud box selected by Auto"
-            : "this computer selected by Auto";
+        : null;
 
   // resolve the mode on open; box endpoints are only ever hit on the
   // cloud path, so local/off can never render a JSON error as an image
@@ -127,7 +123,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
     setVmFrame(null);
     setLocalFrame(null);
     setError(null);
-    if (bot.computer === "off") {
+    if ((bot.computer ?? "off") === "off") {
       setPhase("off");
       return;
     }
@@ -165,18 +161,12 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
       setPhase("error");
       return;
     }
-    if (bot.computer !== "cloud" && !capabilitiesReady) return;
-    // cloud, or auto (cloud box wins when one exists, else local in-app)
+    // Cloud access is explicit; configured credentials alone do not opt in.
     api(`/api/bots/${bot.id}/computer`)
       .then((status) => {
         if (!alive) return;
-        const autoLocal = bot.computer !== "cloud" && capabilitiesReady && localAvailable && computerToolSupported;
         if (!status.configured) {
-          setPhase(autoLocal ? "local" : "unconfigured");
-          return;
-        }
-        if (!status.box && autoLocal) {
-          setPhase("local");
+          setPhase("unconfigured");
           return;
         }
         setPhase("starting");
@@ -438,11 +428,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
           <div className="mt-4 rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">Runs on</div>
             <div className="mt-0.5 text-[13px] text-ink-secondary">
-              {!bot.computer &&
-                (localAvailable
-                  ? "Auto uses a cloud box when one exists, otherwise this computer. "
-                  : "Auto uses a cloud box when one is configured; otherwise computer use stays off. ")}
-              Pick where this bot's computer lives. <b className="text-ink">Local VM</b> is a Cua-controlled Linux desktop
+              Computer access stays off until you choose it. Pick where this bot's computer lives. <b className="text-ink">Local VM</b> is a Cua-controlled Linux desktop
               in a container on this machine — free and separate from your own desktop. Set it up in App
               Settings → Local VM.
           </div>
@@ -479,12 +465,21 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
                 key={mode}
                 disabled={disabled}
                 title={unavailableTitle}
-                onClick={() => dispatch({ type: "updateBot", botId: bot.id, patch: { computer: mode } })}
+                onClick={() => {
+                  if (
+                    mode === "local" &&
+                    bot.computer !== "local" &&
+                    !window.confirm(
+                      `Allow ${bot.name} to control this computer's desktop? The bot will be able to see the screen and operate the mouse and keyboard during its turns.`,
+                    )
+                  ) return;
+                  dispatch({ type: "updateBot", botId: bot.id, patch: { computer: mode } });
+                }}
                 className={cn(
                   "flex-1 py-1.5 text-[13px]",
                   i > 0 && "border-l border-hairline/40",
                   disabled && "cursor-not-allowed opacity-40",
-                  bot.computer === mode
+                  (bot.computer ?? "off") === mode
                     ? "bg-raised text-ink"
                     : "text-ink-secondary hover:bg-raised/60 hover:text-ink",
                 )}

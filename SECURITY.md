@@ -22,5 +22,9 @@ response as soon as possible, normally within a few days.
   than inheriting the harness environment. Provider credentials and helper configuration must be
   supplied explicitly for the subprocess that needs them. Accidental inheritance of unrelated
   provider keys, database URLs, deployment tokens, or loader-injection variables is a vulnerability.
+- Local agent turns start in a private per-bot workspace, and legacy bots with no computer choice
+  fail closed as `off`. Starting in the user's home folder or attaching the host desktop requires a
+  separate per-bot opt-in. Provider sandboxes and the permission broker remain the enforcement layer
+  for operations outside the working directory; a working directory alone is not an OS sandbox.
 - Spawning must never route user-influenced strings through a shell. Report any `shell: true` /
   `cmd.exe` string-building you find.

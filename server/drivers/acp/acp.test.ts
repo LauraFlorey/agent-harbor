@@ -6,8 +6,8 @@
 //
 // The fake CLI is a shebang script Windows cannot exec directly —
 // resolveCliSpawn turns it into `node <script>`, so these run everywhere.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -210,13 +210,18 @@ describe("ACP turns (fake CLI)", () => {
   it("passes ACP stdio flags and strips foreign provider keys from the child env", async () => {
     await create();
     const dump = join(scratch, "dump.json");
+    // Windows can retain a terminated process's cwd for a moment. Put the
+    // asserted workspace under the suite home, whose global cleanup retries,
+    // instead of making this test's immediate scratch cleanup flaky.
+    const workspace = join(homedir(), "acp-workspace");
+    mkdirSync(workspace);
     process.env.FAKE_ACP_DUMP = dump;
     process.env.XAI_API_KEY = "xai-should-not-leak";
     process.env.OPENCODE_API_KEY = "opencode-should-not-leak";
     process.env.DATABASE_URL = "postgres://should-not-leak";
     process.env.AWS_SECRET_ACCESS_KEY = "aws-should-not-leak";
 
-    await instance.adapter.sendTurn({ threadId: "t-hygiene", text: "go" });
+    await instance.adapter.sendTurn({ threadId: "t-hygiene", text: "go", cwd: workspace });
     await recorder.until((e) => e.type === "turn.completed");
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
@@ -227,6 +232,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(seen.env.OPENCODE_API_KEY).toBeUndefined();
     expect(seen.env.DATABASE_URL).toBeUndefined();
     expect(seen.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(realpathSync(seen.cwd)).toBe(realpathSync(workspace));
   });
 
   // this driver has no Composio mount, so it must not claim the

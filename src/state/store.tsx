@@ -113,8 +113,10 @@ export interface Bot {
   unread: boolean;
   busy?: boolean;
   modelSelection: ModelSelection;
-  /** Where this bot's computer runs; unset = auto (cloud box if one exists, else local). */
+  /** Where this bot's computer runs; unset legacy values are treated as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Explicit opt-in to start local provider CLIs in the user's home folder. */
+  hostAccess?: boolean;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
   /** tools this bot may always use without asking */

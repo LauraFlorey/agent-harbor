@@ -6,6 +6,7 @@ import { readFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { agentWorkspace } from "./agent-workspace.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR } from "./config.ts";
 import { newId, type ModelSelection, type ThreadId } from "./contracts.ts";
@@ -142,9 +143,11 @@ export interface BotRecord {
   modelSelection: ModelSelection;
   /** provider-native continuation per instance (e.g. claude session id) */
   resumeCursors: Record<string, unknown>;
-  /** which computer the bot acts on: its cloud box, this Mac (local CUA),
-   * or none. Unset = auto (box when it exists, else local when available). */
+  /** Which computer the bot acts on. Unset legacy values fail closed as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Start local provider CLIs in the user's home directory instead of this
+   * bot's private workspace. Off by default and never exported with teams. */
+  hostAccess?: boolean;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */
@@ -300,7 +303,21 @@ export class Store {
     let botsMigrated = false;
     let chiefSeen = false;
     let groupsMigrated = false;
-    for (const b of this.bots) b.busy = false;
+    for (const b of this.bots) {
+      b.busy = false;
+      // Pre-isolation releases used an unset computer value as an implicit
+      // host/cloud "Auto" grant. Migrate that ambiguity to explicit Off,
+      // and make the new host-files permission explicit too.
+      if (b.computer === undefined) {
+        b.computer = "off";
+        botsMigrated = true;
+      }
+      if (typeof b.hostAccess !== "boolean") {
+        b.hostAccess = false;
+        botsMigrated = true;
+      }
+      agentWorkspace(b.id);
+    }
     for (const b of this.bots) {
       if (!b.chiefOfStaff) continue;
       if (!chiefSeen) {
@@ -585,8 +602,11 @@ export class Store {
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},
+      computer: "off",
+      hostAccess: false,
       createdAt: Date.now(),
     };
+    agentWorkspace(bot.id);
     bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];
     this.bots.unshift(bot);
     this.saveBots();

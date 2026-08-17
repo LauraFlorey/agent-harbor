@@ -13,8 +13,8 @@
 //                     peer, and reply with what the peer said — the comms e2e)
 //                   | delegate-peer (same as ask-peer but uses delegate_bot —
 //                     returns immediately, the peer runs after our turn)
-//   FAKE_ACP_DUMP   path to write {argv, env} as JSON, so a test can assert
-//                   argv shape (agent/stdio flags) and env hygiene
+//   FAKE_ACP_DUMP   path to write {argv, env, cwd} as JSON, so a test can
+//                   assert argv shape, env hygiene, and workspace routing
 //   FAKE_ACP_MODELS      comma-separated model ids. Enables the opencode-shaped
 //                        surface: session/new and session/load return
 //                        configOptions, and session/set_config_option switches
@@ -66,7 +66,7 @@ if (process.env.FAKE_ACP_DUMP) {
       "XAI_API_KEY",
     ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]] as const)),
   );
-  writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify({ argv, env: dumpEnv }, null, 2));
+  writeFileSync(process.env.FAKE_ACP_DUMP, JSON.stringify({ argv, env: dumpEnv, cwd: process.cwd() }, null, 2));
 }
 if (argv.includes("--version")) {
   console.log("fake-acp 1.0.0");
