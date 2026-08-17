@@ -75,7 +75,7 @@ function serializePayload(payload) {
     }
     if (text.length <= MAX_EVENT_CHARS)
         return text;
-    return `${text.slice(0, MAX_EVENT_CHARS)}\n\n[Payload truncated by OpenMausBot]`;
+    return `${text.slice(0, MAX_EVENT_CHARS)}\n\n[Payload truncated by Agent Harbor]`;
 }
 function previewPayload(payload) {
     return serializePayload(payload).replace(/\s+/g, " ").trim().slice(0, 2_000);
@@ -256,7 +256,7 @@ export class WebhookManager {
             payload,
             contentType: "application/json",
             eventName,
-            userAgent: "OpenMausBot webhook tester",
+            userAgent: "Agent Harbor webhook tester",
             deliveryId: `test-${randomUUID()}`,
         });
     }

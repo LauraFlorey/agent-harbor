@@ -1,18 +1,21 @@
+# Retained for compatibility with existing OS permissions and installations.
+# The visible product identity is Agent Harbor; changing this identifier needs
+# a dedicated signed-app migration.
 appId: com.openmausbot.app
-productName: OpenMausBot
-artifactName: OpenMausBot-${version}-${arch}.${ext}
+productName: Agent Harbor
+artifactName: Agent-Harbor-${version}-${arch}.${ext}
 
 # In-app auto-update reads latest-mac.yml + the .zip (macOS) or latest.yml +
-# the NSIS .exe (Windows) from this PUBLIC releases repo (separate from the
-# source repo). Public → no token on users' machines. Baked into
+# the NSIS .exe (Windows) from this repository's releases. Public releases
+# need no token on users' machines. Baked into
 # app-update.yml; both metadata files are emitted here even with
 # --publish never, and must be uploaded to the GitHub release alongside the
 # artifacts — a release missing latest.yml leaves every Windows install
 # stranded on its installed version.
 publish:
   - provider: github
-    owner: milind-soni
-    repo: openmausbot-releases
+    owner: LauraFlorey
+    repo: agent-harbor
 
 directories:
   buildResources: build
@@ -29,7 +32,7 @@ files:
   - "!electron/resources/speech-helper"
   - "!electron/resources/speech-helper.swift"
   - "!electron/resources/speech-helper-Info.plist"
-  - "!electron/resources/OpenMausBot Speech.app/**"
+  - "!electron/resources/Agent Harbor Speech.app/**"
   - "!**/node_modules/**"
   - package.json
 
@@ -55,8 +58,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   # the dictation helper is a signed background app — Windows and Linux never see it
   extraResources:
-    - from: electron/resources/OpenMausBot Speech.app
-      to: OpenMausBot Speech.app
+    - from: electron/resources/Agent Harbor Speech.app
+      to: Agent Harbor Speech.app
     # CUA must live outside ASAR. prepare-cua stages the signed executable and
     # a self-contained JS/native SDK bundle selected for macOS arm64.
     - from: dist-native/cua-driver
@@ -64,17 +67,17 @@ mac:
     - from: dist-native/cua-sdk
       to: cua-sdk
   extendInfo:
-    NSMicrophoneUsageDescription: OpenMausBot uses the microphone for voice dictation into the composer.
-    NSSpeechRecognitionUsageDescription: OpenMausBot transcribes your voice on-device to type messages for you.
-    NSAccessibilityUsageDescription: OpenMausBot uses Accessibility when you let a bot control this Mac.
-    NSScreenCaptureUsageDescription: OpenMausBot uses Screen Recording so bots can see this Mac before acting.
+    NSMicrophoneUsageDescription: Agent Harbor uses the microphone for voice dictation into the composer.
+    NSSpeechRecognitionUsageDescription: Agent Harbor transcribes your voice on-device to type messages for you.
+    NSAccessibilityUsageDescription: Agent Harbor uses Accessibility when you let a bot control this Mac.
+    NSScreenCaptureUsageDescription: Agent Harbor uses Screen Recording so bots can see this Mac before acting.
   # Notarization runs manually after the build (notarytool + staple),
   # mirroring the BlueyLite ship_release.sh flow.
   notarize: false
 
 dmg:
   sign: true
-  artifactName: OpenMausBot-${version}.dmg
+  artifactName: Agent-Harbor-${version}.dmg
 
 win:
   target:
@@ -96,11 +99,10 @@ win:
 nsis:
   oneClick: true
   perMachine: false
-  shortcutName: OpenMausBot
-  # Versioned, like the .dmg. The README's /latest/download/ button needs a
-  # STABLE filename, so ship a second copy named OpenMausBot-setup.exe on the
-  # release — the same trick as OpenMausBot.dmg beside OpenMausBot-${version}.dmg.
-  artifactName: OpenMausBot-${version}-setup.${ext}
+  shortcutName: Agent Harbor
+  # Versioned, like the .dmg. A release may also publish the stable filename
+  # Agent-Harbor-setup.exe for a permanent download URL.
+  artifactName: Agent-Harbor-${version}-setup.${ext}
 
 linux:
   target:
@@ -112,15 +114,15 @@ linux:
   # lone 1024px PNG is not indexed by GNOME's hicolor theme on Ubuntu 24.04.
   icon: build/icon.svg
   category: Utility
-  executableName: openmausbot
+  executableName: agent-harbor
   synopsis: Your own team of AI bots, in a chat app
   description: A local-first chat app for running a team of AI agents.
-  maintainer: Milind Soni <46266943+milind-soni@users.noreply.github.com>
-  vendor: OpenMausBot
+  maintainer: Laura Florey <52425450+LauraFlorey@users.noreply.github.com>
+  vendor: Agent Harbor
   syncDesktopName: true
   desktop:
     entry:
-      Name: OpenMausBot
+      Name: Agent Harbor
       Comment: Your own team of AI bots, in a chat app
       Keywords: AI;Agents;Chat;Productivity;
 

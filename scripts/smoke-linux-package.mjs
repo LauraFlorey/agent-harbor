@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const executable = path.resolve(
-  process.env.OMB_SMOKE_EXECUTABLE ?? path.join(root, "release", "linux-unpacked", "openmausbot"),
+  process.env.OMB_SMOKE_EXECUTABLE ?? path.join(root, "release", "linux-unpacked", "agent-harbor"),
 );
 if (!existsSync(executable)) throw new Error(`[smoke-linux-package] missing executable: ${executable}`);
 
@@ -88,7 +88,7 @@ try {
   if (health?.app !== "openmausbot" || health.static !== true) {
     throw new Error(`unexpected embedded health response: ${JSON.stringify(health)}`);
   }
-  if (!String(title).includes("OpenMausBot")) throw new Error(`unexpected renderer title: ${title}`);
+  if (!String(title).includes("Agent Harbor")) throw new Error(`unexpected renderer title: ${title}`);
   if (capabilities.host.platform !== "linux") throw new Error("renderer did not report Linux");
   if (capabilities.dictation.available) throw new Error("dictation must be unavailable on Linux");
   if (capabilities.localComputer.available) throw new Error("local control must be unavailable on Linux");

@@ -30,7 +30,7 @@ const TOOLS = [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) in this OpenMausBot workspace you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
+      "List the other bots (agents) in this Agent Harbor workspace you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
     inputSchema: { type: "object", properties: {} },
   },
   {

@@ -66,4 +66,20 @@ describe("local computer descriptor", () => {
 
     expect(readCuaConnection({ platform: "win32", userData })).toBeNull();
   });
+
+  it.each(["Agent Harbor", "OpenMausBot"])("keeps the %s macOS descriptor path compatible", (appName) => {
+    const home = join(process.env.HOME!, `mac-home-${appName.replaceAll(" ", "-")}`);
+    const userData = join(home, "Library", "Application Support", appName);
+    mkdirSync(userData, { recursive: true });
+    writeFileSync(
+      join(userData, "cua-connection.json"),
+      JSON.stringify({ mode: "embedded", mcpCommand: "/tmp/cua-driver", mcpArgs: ["mcp"] }),
+    );
+
+    expect(readCuaConnection({ platform: "darwin", home })).toEqual({
+      command: "/tmp/cua-driver",
+      args: ["mcp"],
+      env: {},
+    });
+  });
 });

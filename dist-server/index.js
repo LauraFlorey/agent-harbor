@@ -1,4 +1,4 @@
-// OpenMausBot server — the harness host. Clients hold no transports
+// Agent Harbor server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID } from "node:crypto";
@@ -723,7 +723,7 @@ async function startTurn(botId, text, opts) {
         ].join("\n")
         : text;
     const persona = [
-        `You are ${bot.name}, a personal bot in OpenMausBot.`,
+        `You are ${bot.name}, a personal bot in Agent Harbor.`,
         bot.title && `Role: ${bot.title}.`,
         bot.description && `About: ${bot.description}`,
     ]
@@ -786,7 +786,7 @@ async function startTurn(botId, text, opts) {
                 }
                 const cua = readCuaConnection();
                 if (!cua)
-                    throw new Error("CUA Driver is not ready for this computer — check permissions and restart OpenMausBot");
+                    throw new Error("CUA Driver is not ready for this computer — check permissions and restart Agent Harbor");
                 integrations.localComputer = cua;
                 computerKind = "local";
             }
@@ -1038,7 +1038,7 @@ spoken = new Set()) {
         .map((b) => `@${b.name}${b.title ? ` (${b.title})` : ""}`)
         .join(", ");
     const system = [
-        `You are ${bot.name}, a bot in the room "${group.name}" in OpenMausBot.`,
+        `You are ${bot.name}, a bot in the room "${group.name}" in Agent Harbor.`,
         bot.title && `Role: ${bot.title}.`,
         bot.description && `About: ${bot.description}`,
         `Room members: ${roster}, and ${userName} (the human).`,
@@ -1352,7 +1352,7 @@ const server = createServer(async (req, res) => {
                 }
                 const channel = getOrCreateChannel(store, currentFrom, currentTarget);
                 mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
-                const prefixed = `[Message from @${currentFrom.name}, another bot in this OpenMausBot workspace. Reply to them.]\n\n${message}`;
+                const prefixed = `[Message from @${currentFrom.name}, another bot in this Agent Harbor workspace. Reply to them.]\n\n${message}`;
                 const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId);
                 mirrorReply(commsBus, currentTarget, reply, channel);
                 return json(res, 200, { botName: currentTarget.name, text: reply });
@@ -1437,7 +1437,7 @@ const server = createServer(async (req, res) => {
         // ── independent webhook triggers ────────────────────────────────────
         // Management stays on the app-only server. Actual deliveries land on a
         // second, webhook-only loopback listener so Funnel or a future hosted
-        // relay never has to expose the rest of OpenMausBot's control surface.
+        // relay never has to expose the rest of Agent Harbor's control surface.
         if (path === "/api/webhooks" && method === "GET") {
             return json(res, 200, { webhooks: webhooks.list(), attempts: webhooks.listAttempts(), ingress: webhookIngressStatus() });
         }

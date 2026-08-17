@@ -149,7 +149,7 @@ async function processOne(bus, approvalBus, from, sourceThreadId, item, runTarge
     const channel = getOrCreateChannel(bus.store, sender, target);
     mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId);
     const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
-    const prefixed = `[Delegated by @${sender.name}, another bot in this OpenMausBot workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
+    const prefixed = `[Delegated by @${sender.name}, another bot in this Agent Harbor workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
     await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId);
 }
 /** Test helper: how many items remain queued for a thread. */

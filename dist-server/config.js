@@ -16,9 +16,9 @@ const MANAGED_TOP_LEVEL = /^(config|secrets|bots|groups|routines|webhooks)\.json
 function secureManagedFile(path) {
     const stat = lstatSync(path);
     if (stat.isSymbolicLink())
-        throw new Error(`refusing symbolic link for private OpenMausBot state: ${path}`);
+        throw new Error(`refusing symbolic link for private Agent Harbor state: ${path}`);
     if (!stat.isFile())
-        throw new Error(`private OpenMausBot state is not a regular file: ${path}`);
+        throw new Error(`private Agent Harbor state is not a regular file: ${path}`);
     chmodSync(path, PRIVATE_FILE_MODE);
 }
 function secureExistingState() {

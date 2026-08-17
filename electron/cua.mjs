@@ -2,8 +2,8 @@
 //
 // Two modes, per cua-driver's EMBEDDING.md:
 //  - "embedded" (packaged app): spawn our own private daemon via
-//    EmbeddedCuaDriverHost so TCC grants attribute to OpenMausBot and the
-//    driver inherits them. One prompt, named OpenMausBot, out of the box.
+//    EmbeddedCuaDriverHost so TCC grants attribute to Agent Harbor and the
+//    driver inherits them. One prompt, named Agent Harbor, out of the box.
 //  - "standalone" (dev): attach to an already-installed CuaDriver.app daemon
 //    (its own TCC identity, typically already granted on a dev machine).
 //
@@ -86,14 +86,14 @@ async function startEmbedded(binary) {
   const sdk = await loadEmbeddedSdk();
   // CUA's embedding contract requires grants before the child daemon starts;
   // these SDK calls execute in Electron main so macOS attributes them to
-  // OpenMausBot rather than to a terminal or helper process.
+  // Agent Harbor rather than to a terminal or helper process.
   const permissionStatus = sdk.requestMacOSPermissions();
   if (!sdk.hasRequiredMacOSPermissions(permissionStatus)) {
     const missing = [
       !permissionStatus.accessibility && "Accessibility",
       !permissionStatus.screenRecording && "Screen Recording",
     ].filter(Boolean).join(" and ");
-    throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart OpenMausBot`);
+    throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart Agent Harbor`);
   }
   embeddedHost = new sdk.EmbeddedCuaDriverHost(binary, HOST_BUNDLE_ID);
   const conn = await embeddedHost.start();

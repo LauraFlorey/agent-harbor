@@ -1,4 +1,4 @@
-# Voice in OpenMausBot
+# Voice in Agent Harbor
 
 Decision doc, 2026-08-14. How bots speak, and how you hold a conversation with
 one.
