@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { posix } from "node:path";
 
 import { execCli } from "../procs.ts";
 
@@ -58,8 +58,8 @@ export function codexCliCandidates(
     configuredCli,
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/Applications/Codex.app/Contents/Resources/codex",
-    join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
-    join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
+    posix.join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+    posix.join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
   ];
 }
 
