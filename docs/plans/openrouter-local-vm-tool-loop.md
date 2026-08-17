@@ -1,0 +1,167 @@
+# Sprint: OpenRouter Local VM tool loop
+
+## Outcome
+
+An Agent Harbor bot using an OpenRouter model can operate the isolated Local
+VM through Cua Driver while preserving the same destination boundaries,
+approval cards, interruption behavior, and audit trail used by the CLI and ACP
+engines.
+
+This sprint is complete only when the model can inspect and operate a browser
+inside the Local VM. Text chat alone, a mocked tool response, or a model that
+can merely describe intended clicks does not meet the outcome.
+
+## Scope
+
+### In scope
+
+- A provider-neutral, server-owned tool loop for API-backed model engines.
+- OpenRouter Chat Completions tool declarations and streamed tool calls.
+- Cua Driver tools from the explicitly selected Local VM.
+- Existing Agent Harbor approval cards and per-bot remembered approvals.
+- Strict Local VM lease, cancellation, timeout, and turn limits.
+- Activity chips, screen refreshes, native-event redaction, tests, and setup
+  documentation.
+
+### Not in scope
+
+- Jinx integration or changes of any kind.
+- Silent access to this Mac, a cloud computer, connected apps, files, or peer
+  agents.
+- Automatic Facebook sign-in, credential entry, CAPTCHA handling, or attempts
+  to evade a website's automation controls.
+- Giving every OpenRouter model computer capability. The model catalog must
+  distinguish models that reliably support tool calls.
+
+Cloud and host-computer destinations can reuse the provider-neutral loop in a
+later sprint after the Local VM boundary is proven.
+
+## User story
+
+> I can choose an OpenRouter model and the Local VM, ask the bot to inspect a
+> webpage, watch its actions, approve consequential steps, interrupt it, and
+> know it cannot silently fall through to my Mac or another computer.
+
+## Architecture boundary
+
+The harness remains the authority for destination selection and Local VM
+leasing. The OpenRouter driver must never launch or select a computer itself.
+It receives a turn-scoped tool endpoint only after `server/index.ts` validates
+the bot's explicit destination and claims the shared Local VM lease.
+
+The provider-neutral loop owns:
+
+1. MCP initialization and tool discovery for the turn-scoped Cua endpoint.
+2. Conversion from MCP tool schemas to OpenAI-compatible tool definitions.
+3. Model response parsing, including streamed tool-call arguments.
+4. Approval classification and the existing `request.opened` /
+   `request.resolved` event contract.
+5. Tool execution, result normalization, and continuation messages.
+6. Cancellation, deadlines, call ceilings, cleanup, and redacted logging.
+
+The OpenRouter driver owns only provider transport: requests, SSE parsing,
+model selection, usage reporting, and provider-safe errors.
+
+## Work plan
+
+### Story 1 — Provider-neutral tool contract
+
+- Extend provider capabilities so API-backed engines can declare a
+  server-driven tool loop without pretending to mount MCP themselves.
+- Add typed tool-call and tool-result structures to the harness contract.
+- Keep existing Claude and ACP behavior unchanged.
+
+**Checkpoint:** capability routing tests prove OpenRouter can be eligible for
+the Local VM without changing Codex, Grok API, or other text-only engines.
+
+### Story 2 — Turn-scoped MCP client
+
+- Connect to the existing `integrations.localComputer` stdio descriptor.
+- Initialize MCP, list tools, validate JSON schemas, and close the process on
+  completion, interruption, timeout, or provider failure.
+- Reject symlinked/untrusted executables and inherit only the allowlisted
+  environment already produced by the Local VM connection builder.
+
+**Checkpoint:** an integration test discovers Cua-style tools from a fake MCP
+server and leaves no child process after every exit path.
+
+### Story 3 — OpenRouter tool-call transport
+
+- Send normalized tool definitions through `/chat/completions`.
+- Accumulate streamed tool-call names, IDs, and argument fragments.
+- Validate arguments before execution and return structured errors to the
+  model rather than crashing the turn.
+- Continue the conversation with assistant tool calls and tool-result
+  messages until the model produces a final answer.
+
+**Checkpoint:** recorded SSE fixtures cover one call, sequential calls,
+malformed JSON, provider errors, cancellation, and a final text response.
+
+### Story 4 — Approval and safety gate
+
+- Route tool requests through Agent Harbor's canonical approval events.
+- Default to denial when the approval channel is unavailable or times out.
+- Preserve destructive-action detection and remembered approval keys.
+- Require a fresh human decision for credential entry, purchases, publishing,
+  deletion, account changes, and externally visible messages.
+- Never send secrets or raw credential fields to OpenRouter logs.
+
+**Checkpoint:** no mutating tool reaches the MCP server before an allow
+decision; denial, timeout, and interruption all prevent execution.
+
+### Story 5 — Limits, lease, and observability
+
+- Retain the current single-owner Local VM lease for the entire tool loop.
+- Add per-turn ceilings for tool calls, repeated identical calls, elapsed
+  time, and tool-result size.
+- Emit the existing activity chips and refresh the computer preview after
+  relevant actions.
+- Release the lease and terminate every child on success, error, cancellation,
+  renderer loss, and server shutdown.
+
+**Checkpoint:** stubborn-child and concurrent-bot tests prove that cleanup and
+the one-bot-at-a-time fence hold.
+
+### Story 6 — Product integration and documentation
+
+- Advertise Local VM compatibility only for OpenRouter models whose catalog
+  metadata indicates tool support, with a safe fallback when metadata is
+  absent.
+- Update the computer panel, model picker, and OpenRouter documentation.
+- Add a plain-language note that website credentials are entered manually in
+  the Local VM and remain outside prompts.
+
+**Checkpoint:** unsupported models remain disabled with an explanation;
+supported models can select Local VM without a false capability error.
+
+## Acceptance test
+
+Use a controlled test webpage rather than a live social account for automated
+CI and release verification.
+
+1. Select a tool-capable OpenRouter model and Local VM.
+2. Ask the bot to open the controlled page and summarize visible content.
+3. Watch it take screenshots, click, scroll, and type into a harmless form.
+4. Confirm a consequential mock action produces an approval card and does not
+   execute before approval.
+5. Interrupt a second run mid-action and verify the OpenRouter request, MCP
+   client, and Local VM lease all stop.
+6. Restart Agent Harbor and verify there are no orphaned model or MCP
+   processes.
+7. Confirm selecting Computer Off gives the model no computer tools.
+
+After those checks pass, a person may perform a separate manual Facebook smoke
+test using an account they are authorized to access. The person signs in
+directly inside the Local VM; credentials are never pasted into chat.
+
+## Definition of done
+
+- All six story checkpoints pass.
+- Existing engine behavior and approval tests remain green on macOS, Windows,
+  and Linux.
+- The package smoke job passes.
+- No credentials, tool arguments containing secrets, or raw screenshots enter
+  native provider logs.
+- Documentation states the supported destinations and model limitations.
+- The feature remains behind capability checks until the complete acceptance
+  test passes; no partial implementation advertises computer support.
