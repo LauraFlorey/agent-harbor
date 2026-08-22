@@ -65,10 +65,13 @@ jobs:
       - name: Launch packaged app and verify lifecycle
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-linux-package.mjs
       - uses: actions/upload-artifact@v4
-        if: always()
+        # Pull requests already prove packaging above; retaining two large
+        # installers from every PR run exhausted the repository quota.
+        if: always() && github.event_name != 'pull_request'
         with:
           name: agent-harbor-ubuntu-x64
           path: |
             release/*.deb
             release/*.AppImage
           if-no-files-found: error
+          retention-days: 1
