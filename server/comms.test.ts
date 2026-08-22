@@ -14,7 +14,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { mentionedBots, normalizeGroupDefaultResponder, roomResponders } from "./store.ts";
 
@@ -114,6 +114,11 @@ describe("comms e2e (fake ACP fleet)", () => {
           askerDelegate: {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "delegate-peer" },
+            config: { cli: FAKE_CLI, fullAuto: true },
+          },
+          hang: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "hang" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
         },
@@ -571,4 +576,56 @@ describe("comms e2e (fake ACP fleet)", () => {
     expect(reply.text).not.toContain("one hop");
     expect(reply.text).not.toContain("peer error");
   }, 45_000);
+
+  it("blocks task switching while a bot turn is running", async () => {
+    const selection = { instanceId: "hang", model: "fake-model" };
+    const created = (await api("POST", "/api/bots")).body.bot;
+    const originalThreadId = created.threadId;
+    await api("PATCH", `/api/bots/${created.id}`, { name: "Busy task bot", modelSelection: selection });
+    const secondTask = await api("POST", `/api/bots/${created.id}/tasks`, {});
+    expect(secondTask.status).toBe(201);
+
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "keep working" })).status).toBe(202);
+    await vi.waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      expect(state.bots.find((bot: any) => bot.id === created.id)?.busy).toBe(true);
+    }, { timeout: 10_000, interval: 100 });
+
+    const switched = await api("POST", `/api/bots/${created.id}/tasks/${originalThreadId}`);
+    expect(switched.status).toBe(409);
+    expect(switched.body.error).toContain("working");
+
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await vi.waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      expect(state.bots.find((bot: any) => bot.id === created.id)?.busy).toBe(false);
+    }, { timeout: 10_000, interval: 100 });
+    await api("DELETE", `/api/bots/${created.id}`);
+  }, 20_000);
+
+  it("interrupting a room drains responders already queued behind the active turn", async () => {
+    const selection = { instanceId: "hang", model: "fake-model" };
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    await api("PATCH", `/api/bots/${bot.id}`, { name: "Room worker", modelSelection: selection });
+    const room = (await api("POST", "/api/groups", { name: "Interrupt room", memberIds: [bot.id] })).body.group;
+
+    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first" })).status).toBe(202);
+    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "second" })).status).toBe(202);
+    await vi.waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      expect(state.groups.find((group: any) => group.id === room.id)?.busyBotId).toBe(bot.id);
+    }, { timeout: 10_000, interval: 100 });
+
+    expect((await api("POST", `/api/groups/${room.id}/interrupt`)).status).toBe(200);
+    await vi.waitFor(async () => {
+      const state = (await api("GET", "/api/bots")).body;
+      const current = state.groups.find((group: any) => group.id === room.id);
+      expect(current?.busyBotId).toBeNull();
+      expect(state.bots.find((candidate: any) => candidate.id === bot.id)?.busy).toBe(false);
+      expect(current.messages.filter((message: any) => message.role === "bot" && message.kind === "text")).toEqual([]);
+    }, { timeout: 10_000, interval: 100 });
+
+    await api("DELETE", `/api/groups/${room.id}`);
+    await api("DELETE", `/api/bots/${bot.id}`);
+  }, 20_000);
 });

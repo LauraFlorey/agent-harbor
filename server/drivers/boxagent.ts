@@ -103,16 +103,9 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
         .filter((s) => s !== undefined)
         .join("\n");
 
-      const started: any = await api(`/boxes/${boxId}/prompt`, {
-        method: "POST",
-        body: JSON.stringify({ provider: providerFor(model), model, prompt }),
-      });
-      appendNative(threadId, { dir: "out", source: "box.prompt", msg: { model, prompt, response: started } });
-      // real shape (2026-08): {type:"prompt.queued", promptId, promptRun:{id,…},
-      // id:<box id>} — never fall back to the bare id, it's the box's
-      const promptId = started?.promptRun?.id ?? started?.prompt?.id ?? started?.promptId ?? null;
-
       let cancelled = false;
+      // Reserve the thread before the async prompt POST — without this two
+      // concurrent sendTurns both pass the guard and queue two paid runs.
       active.set(threadId, {
         turnId,
         boxId,
@@ -121,6 +114,22 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
           void api(`/boxes/${boxId}/interrupt`, { method: "POST" }).catch(() => {});
         },
       });
+
+      let started: any;
+      try {
+        started = await api(`/boxes/${boxId}/prompt`, {
+          method: "POST",
+          body: JSON.stringify({ provider: providerFor(model), model, prompt }),
+        });
+      } catch (e) {
+        active.delete(threadId);
+        throw e;
+      }
+      appendNative(threadId, { dir: "out", source: "box.prompt", msg: { model, prompt, response: started } });
+      // real shape (2026-08): {type:"prompt.queued", promptId, promptRun:{id,…},
+      // id:<box id>} — never fall back to the bare id, it's the box's
+      const promptId = started?.promptRun?.id ?? started?.prompt?.id ?? started?.promptId ?? null;
+
       emit({ ...base(threadId, turnId), type: "turn.started" });
       emit({ ...base(threadId, turnId), type: "session.started", sessionId: promptId, model });
 

@@ -5,7 +5,7 @@
 // the shadow-instance behavior end to end while it's at it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -146,6 +146,23 @@ describe("harness HTTP API", () => {
     const unknownApi = await api("GET", "/api/not-a-real-route");
     expect(unknownApi.status).toBe(404);
     expect(unknownApi.body.error).toContain("/api/not-a-real-route");
+  });
+
+  it.skipIf(process.platform === "win32")("does not follow static-file symlinks outside the packaged UI root", async () => {
+    const outside = join(home, "outside-static-secret.txt");
+    writeFileSync(outside, "must not be served");
+    symlinkSync(outside, join(staticDir, "assets", "outside.txt"));
+
+    const response = await fetch(`${BASE}/assets/outside.txt`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/html");
+    expect(await response.text()).toContain("Packaged Agent Harbor");
+  });
+
+  it("does not expose removed test and owner-shell routes", async () => {
+    expect((await api("POST", "/api/webhooks/not-real/test", {})).status).toBe(404);
+    const botId = (await api("GET", "/api/bots")).body.bots[0].id;
+    expect((await api("POST", `/api/bots/${botId}/computer/exec`, { command: "id" })).status).toBe(404);
   });
 
   it("rejects malformed and oversized JSON bodies without hanging", async () => {
