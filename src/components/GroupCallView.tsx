@@ -11,6 +11,7 @@ import { routeSpokenGroupMessage } from "@/lib/group-call";
 import { track } from "@/lib/analytics";
 import { normalizeState } from "@/lib/mascot";
 import { speaker } from "@/lib/tts";
+import { spokenApprovalDecision } from "@/lib/spoken-approval";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
 import { useStore, type Bot, type Group, type Message } from "@/state/store";
@@ -19,8 +20,6 @@ import { MausAvatar } from "./Avatar";
 import { CallTargetButton } from "./CallView";
 import { pendingApprovals } from "./PendingApproval";
 
-const YES = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|allow|approve|approved|fine|please do)\b/i;
-const NO = /^(no|nope|don'?t|do not|stop|deny|denied|cancel|never|skip it)\b/i;
 const CALL_ENDPOINT_MS = 850;
 
 type Phase = "listening" | "sending" | "working" | "speaking";
@@ -210,8 +209,9 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
 
       const openApproval = askedApproval.current;
       if (openApproval) {
-        if (YES.test(said) || NO.test(said)) {
-          const allow = YES.test(said);
+        const decision = spokenApprovalDecision(said);
+        if (decision) {
+          const allow = decision === "allow";
           askedApproval.current = null;
           allowBargeIn.current = false;
           dispatch({

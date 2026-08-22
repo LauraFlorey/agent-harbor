@@ -78,8 +78,10 @@ export const GrokDriver: ProviderDriver<GrokConfig> = {
         signal: opts.signal ?? AbortSignal.timeout(120_000),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`xAI HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+        // Upstream error bodies can echo request fragments or account details.
+        // Keep user-visible and native errors status-only.
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`xAI HTTP ${res.status}`);
       }
       if (!opts.stream) {
         const json: any = await res.json();

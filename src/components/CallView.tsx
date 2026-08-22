@@ -29,13 +29,8 @@ import { MausAvatar } from "./Avatar";
 import { pendingApprovals } from "./PendingApproval";
 import { cn } from "@/lib/cn";
 import { track } from "@/lib/analytics";
+import { spokenApprovalDecision } from "@/lib/spoken-approval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-
-/** Spoken answers to a permission card. Anything else is read as a reply
- * to the bot, not as consent — an approval must never be granted by a
- * sentence that merely contained the word "sure". */
-const YES = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|allow|approve|approved|fine|please do)\b/i;
-const NO = /^(no|nope|don'?t|do not|stop|deny|denied|cancel|never|skip it)\b/i;
 
 type Phase = "listening" | "sending" | "working" | "speaking";
 const CALL_ENDPOINT_MS = 850;
@@ -305,8 +300,9 @@ function Call({ bot }: { bot: Bot }) {
 
       const open = askedApproval.current;
       if (open) {
-        if (YES.test(said) || NO.test(said)) {
-          const allow = YES.test(said);
+        const decision = spokenApprovalDecision(said);
+        if (decision) {
+          const allow = decision === "allow";
           askedApproval.current = null;
           dispatch({
             type: "decideRequest",

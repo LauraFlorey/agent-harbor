@@ -14,8 +14,7 @@
 // The resulting connection descriptor is written to
 // <userData>/cua-connection.json for the harness server to hand to drivers.
 
-import { app, ipcMain } from "electron";
-import { spawnSync } from "node:child_process";
+import { app } from "electron";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import net from "node:net";
@@ -148,21 +147,6 @@ export async function startCua() {
   return connectionStore.persist(nextConnection);
 }
 
-export function cuaPermissionsStatus() {
-  const binary = resolveDriverBinary();
-  if (!binary) return { available: false };
-  const out = spawnSync(binary, ["permissions", "status", "--json"], {
-    encoding: "utf8",
-    timeout: 5000,
-    env: { ...process.env, ...CUA_ENV },
-  });
-  try {
-    return { available: true, ...JSON.parse(out.stdout) };
-  } catch {
-    return { available: true, raw: out.stdout?.trim() };
-  }
-}
-
 export async function stopCua() {
   if (embeddedHost) {
     try {
@@ -176,9 +160,4 @@ export async function stopCua() {
   if (connectionStore.get()) {
     connectionStore.persist({ mode: "unavailable", reason: "desktop-host-stopped" });
   }
-}
-
-export function registerCuaIpc() {
-  ipcMain.handle("cua:connection", () => connectionStore.get());
-  ipcMain.handle("cua:permissions", () => cuaPermissionsStatus());
 }

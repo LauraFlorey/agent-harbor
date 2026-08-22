@@ -28,12 +28,12 @@ describe("Antigravity decodeConfig", () => {
     });
   });
 
-  it("defaults to the agy binary and fullAuto on", () => {
-    expect(AntigravityDriver.decodeConfig({})).toEqual({ cli: "agy", fullAuto: true });
-    expect(AntigravityDriver.decodeConfig(undefined)).toEqual({ cli: "agy", fullAuto: true });
+  it("defaults to the agy binary with fullAuto off", () => {
+    expect(AntigravityDriver.decodeConfig({})).toEqual({ cli: "agy", fullAuto: false });
+    expect(AntigravityDriver.decodeConfig(undefined)).toEqual({ cli: "agy", fullAuto: false });
   });
-  it("fullAuto defaults to true, only false when explicitly set", () => {
-    expect(AntigravityDriver.decodeConfig({}).fullAuto).toBe(true);
+  it("enables fullAuto only when explicitly set", () => {
+    expect(AntigravityDriver.decodeConfig({}).fullAuto).toBe(false);
     expect(AntigravityDriver.decodeConfig({ fullAuto: false }).fullAuto).toBe(false);
     expect(AntigravityDriver.decodeConfig({ fullAuto: true }).fullAuto).toBe(true);
   });

@@ -144,6 +144,21 @@ describe("OpenCode Go configuration", () => {
   });
 });
 
+describe("Box configuration", () => {
+  it("injects the token only into the box agent instance", () => {
+    const instances = instanceConfigs({
+      box: { token: "box-secret" },
+      instances: {
+        computer: { driver: "boxAgent" },
+        grok: { driver: "grokAgent" },
+      },
+    });
+
+    expect(instances.computer.environment).toEqual({ BOX_TOKEN: "box-secret" });
+    expect(instances.grok.environment).toEqual({});
+  });
+});
+
 describe("OpenRouter configuration", () => {
   it("adds the default API provider and injects its key nowhere else", () => {
     const instances = instanceConfigs({ openrouter: { apiKey: "openrouter-secret" } });

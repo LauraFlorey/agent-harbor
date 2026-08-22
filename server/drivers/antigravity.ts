@@ -63,12 +63,10 @@ function decodeConfig(raw: unknown): AntigravityConfig {
   }
   return {
     cli: typeof o.cli === "string" ? o.cli : "agy",
-    // Default fullAuto to TRUE: agy's headless print harness invokes tools even
-    // for trivial prompts and, with no interactive approval channel, auto-denies
-    // them — producing no output, so a non-fullAuto bot's turns frequently fail.
-    // Default to fullAuto for a usable bot; per-action consent returns with the
-    // ACP v2 path. Still throws above on a non-boolean fullAuto.
-    fullAuto: o.fullAuto === undefined ? true : o.fullAuto === true,
+    // Headless print mode has no per-action permission broker. Fail closed by
+    // default; a user must explicitly enable fullAuto before Agent Harbor adds
+    // --dangerously-skip-permissions.
+    fullAuto: o.fullAuto === true,
   };
 }
 

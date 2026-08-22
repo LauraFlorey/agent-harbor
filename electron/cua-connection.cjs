@@ -22,7 +22,7 @@ function createCuaConnectionStore({
       const temporaryPath = `${descriptorPath}.${processId}.${temporaryId()}.tmp`;
 
       try {
-        fileSystem.writeFileSync(temporaryPath, JSON.stringify(next, null, 2));
+        fileSystem.writeFileSync(temporaryPath, JSON.stringify(next, null, 2), { mode: 0o600 });
         fileSystem.renameSync(temporaryPath, descriptorPath);
       } catch (error) {
         try {

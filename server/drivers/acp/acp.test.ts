@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
-import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { createAcpDriver, selectPermissionOption, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
@@ -50,6 +50,23 @@ const EnvPolicyDriver = createAcpDriver({
   transformEnv: (env, config) => {
     env.TEST_POLICY = config.fullAuto ? "auto" : "ask";
   },
+});
+
+describe("ACP permission option selection", () => {
+  it("prefers one-time outcomes regardless of upstream array order", () => {
+    const options = [
+      { optionId: "allow-forever", kind: "allow_always" },
+      { optionId: "allow-this", kind: "allow_once" },
+      { optionId: "reject-forever", kind: "reject_always" },
+      { optionId: "reject-this", kind: "reject_once" },
+    ];
+    expect(selectPermissionOption(options, "allow")).toBe("allow-this");
+    expect(selectPermissionOption(options, "reject")).toBe("reject-this");
+  });
+
+  it("fails closed when no matching outcome exists", () => {
+    expect(selectPermissionOption([{ optionId: "later", kind: "defer" }], "allow")).toBeNull();
+  });
 });
 
 /** Proves snapshot() awaits an async isAuthenticated, which is how the
