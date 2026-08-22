@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # least privilege: CI only reads the checkout, it never writes back
 permissions:
@@ -65,9 +66,9 @@ jobs:
       - name: Launch packaged app and verify lifecycle
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-linux-package.mjs
       - uses: actions/upload-artifact@v4
-        # Pull requests already prove packaging above; retaining two large
-        # installers from every PR run exhausted the repository quota.
-        if: always() && github.event_name != 'pull_request'
+        # Automatic runs prove packaging above. Retain installers only when
+        # someone explicitly launches this workflow to retrieve a build.
+        if: always() && github.event_name == 'workflow_dispatch'
         with:
           name: agent-harbor-ubuntu-x64
           path: |
