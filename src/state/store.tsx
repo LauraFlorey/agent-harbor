@@ -308,7 +308,7 @@ type Action =
   | { type: "messagePatched"; threadId: string; message: Message }
   | { type: "screenFrame"; botId: string; png: string; mime: string }
   | { type: "provisioning"; botId: string; on: boolean }
-  | { type: "setModel"; botId: string; selection: ModelSelection }
+  | { type: "setModel"; botId: string; selection: ModelSelection; computer?: "off" }
   | { type: "interrupt"; botId: string }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
@@ -615,7 +615,11 @@ function reducer(state: AppState, action: Action): AppState {
         provisioning: { ...state.provisioning, [action.botId]: action.on },
       };
     case "setModel":
-      return updateBot(state, action.botId, (b) => ({ ...b, modelSelection: action.selection }));
+      return updateBot(state, action.botId, (b) => ({
+        ...b,
+        modelSelection: action.selection,
+        ...(action.computer ? { computer: action.computer } : {}),
+      }));
     case "connected":
       return { ...state, connected: action.value };
     case "error":
@@ -1058,7 +1062,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "setModel":
           api(`/api/bots/${action.botId}`, {
             method: "PATCH",
-            body: JSON.stringify({ modelSelection: action.selection }),
+            body: JSON.stringify({
+              modelSelection: action.selection,
+              ...(action.computer ? { computer: action.computer } : {}),
+            }),
           }).catch(showError);
           break;
         case "interrupt":

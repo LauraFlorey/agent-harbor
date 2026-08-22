@@ -7,6 +7,11 @@ import { useStore, type Bot, type InstanceInfo } from "@/state/store";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
+import {
+  computerDestinationLabel,
+  supportsComputerDestination,
+  type ComputerDestination,
+} from "@/lib/computer-destinations";
 
 function modelLabel(instance: InstanceInfo | undefined, model: string): string {
   return instance?.models.options.find((o) => o.id === model)?.label ?? model;
@@ -52,14 +57,26 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
     // means. Different engine: drop it, since effort vocabularies are
     // per-driver and the old level may be one the new engine never declared.
     const sameInstance = instance.instanceId === selection.instanceId;
+    const nextSelection = {
+      instanceId: instance.instanceId,
+      model,
+      ...(sameInstance && selection.effort ? { effort: selection.effort } : {}),
+    };
+    const computer: ComputerDestination = bot.computer ?? "off";
+    const turnComputerOff = !supportsComputerDestination(instance.capabilities, computer);
+    if (
+      turnComputerOff &&
+      !window.confirm(
+        `${instance.displayName} cannot use ${computerDestinationLabel(computer)}. Continue and turn this bot's computer access off?`,
+      )
+    ) {
+      return;
+    }
     dispatch({
       type: "setModel",
       botId: bot.id,
-      selection: {
-        instanceId: instance.instanceId,
-        model,
-        ...(sameInstance && selection.effort ? { effort: selection.effort } : {}),
-      },
+      selection: nextSelection,
+      ...(turnComputerOff ? { computer: "off" } : {}),
     });
     setOpen(false);
   };
