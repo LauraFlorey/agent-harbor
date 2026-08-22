@@ -1,5 +1,10 @@
 # OpenCode Go integration plan
 
+> Historical planning record. The initial integration is implemented; see
+> [`../opencode-go.md`](../opencode-go.md) for current setup and behavior.
+> Proposed steps and open questions below are retained as design history, not
+> as the active Agent Harbor backlog.
+
 - Status: proposed
 - Last upstream review: 2026-08-14
 - Tracking artifact: the pull request that adds this document
