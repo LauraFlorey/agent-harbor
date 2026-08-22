@@ -40,7 +40,7 @@ const EXPECTED: Record<string, RoutingCapabilities> = {
     computerUse: "none",
   },
   claudeAgent: RESUME_LOCAL_MCP,
-  codex: RESUME_LOCAL_NONE,
+  codex: RESUME_LOCAL_MCP,
   antigravityAgent: RESUME_LOCAL_NONE,
   boxAgent: {
     contextMode: "provider-managed",

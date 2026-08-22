@@ -108,6 +108,56 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(turnStart.params.input[0].text).toBe("You are Testy.\n\nlist files");
   });
 
+  it("mounts the Local VM computer MCP without exposing credentials in argv", async () => {
+    await create();
+    const dump = join(scratch, "local-computer.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: "t-local-computer",
+      text: "open the browser",
+      integrations: {
+        localComputer: {
+          command: process.execPath,
+          args: ["/tmp/container-mcp.js", "podman", "openmausbot-computer", "/run/cua.sock"],
+          env: { ELECTRON_RUN_AS_NODE: "1", OMB_VM_TOKEN: "vm-secret" },
+        },
+      },
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(instance.adapter.capabilities.computerUse).toBe("mcp");
+    expect(seen.argv.join(" ")).toContain("mcp_servers.computer.command");
+    expect(seen.argv.join(" ")).toContain("/tmp/container-mcp.js");
+    expect(seen.argv.join(" ")).toContain("OMB_VM_TOKEN");
+    expect(seen.argv.join(" ")).not.toContain("vm-secret");
+    expect(seen.env.OMB_VM_TOKEN).toBe("vm-secret");
+  });
+
+  it("mounts the cloud computer proxy without exposing its token in argv", async () => {
+    await create();
+    const dump = join(scratch, "cloud-computer.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: "t-cloud-computer",
+      text: "take a screenshot",
+      integrations: {
+        computer: { boxId: "box-123", token: "remote-secret" },
+      },
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv.join(" ")).toContain("mcp_servers.computer.command");
+    expect(seen.argv.join(" ")).toContain("computer-proxy");
+    expect(seen.argv.join(" ")).toContain("OGB_BOX_TOKEN");
+    expect(seen.argv.join(" ")).not.toContain("remote-secret");
+    expect(seen.env.OGB_BOX_ID).toBe("box-123");
+    expect(seen.env.OGB_BOX_TOKEN).toBe("remote-secret");
+  });
+
   it("streams agentMessage deltas without re-emitting the settled text", async () => {
     process.env.FAKE_CODEX_MODE = "stream";
     await create();

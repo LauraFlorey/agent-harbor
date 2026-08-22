@@ -9,9 +9,13 @@
 //
 // resumeCursor is the codex thread id; a later turn tries thread/resume
 // and falls back to a fresh thread/start.
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { buildAgentEnvironment } from "../agent-environment.ts";
+import { computerProxyEnv } from "../container-computer.ts";
 import { describeSpawnFailure, killCliTree, spawnCli } from "../procs.ts";
 
 import type {
@@ -56,6 +60,31 @@ function decodeConfig(raw: unknown): CodexConfig {
 const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
 const DENY_TIMEOUT_NOTE =
   "Agent Harbor: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+
+const COMPUTER_PROXY_PATH = (() => {
+  const ts = join(dirname(fileURLToPath(import.meta.url)), "..", "computer-proxy.ts");
+  return existsSync(ts) ? ts : ts.replace(/\.ts$/, ".js");
+})();
+
+type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
+
+function mountMcpServer(
+  appServerArgs: string[],
+  env: Record<string, string | undefined>,
+  name: string,
+  server: StdioMcpServer,
+): void {
+  Object.assign(env, server.env);
+  const prefix = `mcp_servers.${name}`;
+  appServerArgs.push(
+    "-c", `${prefix}.command=${JSON.stringify(server.command)}`,
+    "-c", `${prefix}.args=${JSON.stringify(server.args)}`,
+    // Keep values in the child environment. Command-line diagnostics and
+    // process listings receive names only, never computer credentials.
+    "-c", `${prefix}.env_vars=${JSON.stringify(Object.keys(server.env))}`,
+    "-c", `${prefix}.default_tools_approval_mode="auto"`,
+  );
+}
 
 export const CodexDriver: ProviderDriver<CodexConfig> = {
   driverKind: DRIVER_KIND,
@@ -130,7 +159,23 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         overrides: { PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" },
       });
 
-      const child = spawnCli(cli.command, ["app-server"], {
+      const appServerArgs = ["app-server"];
+      if (turn.integrations?.computer) {
+        mountMcpServer(appServerArgs, env, "computer", {
+          command: process.execPath,
+          args: [COMPUTER_PROXY_PATH],
+          env: {
+            ELECTRON_RUN_AS_NODE: "1",
+            ...computerProxyEnv(turn.integrations.computer),
+          },
+        });
+      } else if (turn.integrations?.localComputer) {
+        // Host Cua and the isolated Local VM expose the same stdio MCP
+        // contract, so Codex receives the selected endpoint directly.
+        mountMcpServer(appServerArgs, env, "computer", turn.integrations.localComputer);
+      }
+
+      const child = spawnCli(cli.command, appServerArgs, {
         cwd: turn.cwd ?? homedir(),
         env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -457,7 +502,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           sessionModelSwitch: "unsupported",
           contextMode: "resume-cursor",
           executionMode: "local-process",
-          computerUse: "none",
+          computerUse: "mcp",
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
         },
         sendTurn,
