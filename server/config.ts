@@ -229,7 +229,9 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
       ...(entry.driver === "openrouter" && cfg.openrouter?.apiKey
         ? { OPENROUTER_API_KEY: cfg.openrouter.apiKey }
         : {}),
-      ...(cfg.box?.token ? { BOX_TOKEN: cfg.box.token } : {}),
+      // BOX_TOKEN stays scoped to the box agent — broadcasting it to every
+      // provider's child env would let any agent CLI exfiltrate the cloud token.
+      ...(entry.driver === "boxAgent" && cfg.box?.token ? { BOX_TOKEN: cfg.box.token } : {}),
       ...(entry.driver === "opencodeGo" && cfg.opencodeGo?.apiKey
         ? { OPENCODE_API_KEY: cfg.opencodeGo.apiKey }
         : {}),

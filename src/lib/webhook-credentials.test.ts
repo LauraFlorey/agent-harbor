@@ -4,6 +4,7 @@ import {
   loadWebhookCredentials,
   removeWebhookCredential,
   saveWebhookCredential,
+  webhookCredentialStore,
 } from "./webhook-credentials.js";
 
 function memoryStore() {
@@ -25,6 +26,12 @@ describe("webhook credential storage", () => {
     const store = memoryStore();
     saveWebhookCredential(store, "hook-1", credential);
     expect(loadWebhookCredentials(store)).toEqual({ "hook-1": credential });
+  });
+
+  it("uses volatile module memory instead of renderer localStorage", () => {
+    saveWebhookCredential(webhookCredentialStore(), "volatile-hook", credential);
+    expect(loadWebhookCredentials(webhookCredentialStore())).toMatchObject({ "volatile-hook": credential });
+    removeWebhookCredential(webhookCredentialStore(), "volatile-hook");
   });
 
   it("ignores malformed entries and removes deleted webhooks", () => {

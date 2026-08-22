@@ -116,6 +116,7 @@ const NEW_SESSION_TIMEOUT = 30_000;
 const LOAD_SESSION_TIMEOUT = 120_000; // history replay on a long thread is slow
 const PROVIDER_CREDENTIAL_ENV = [
   "ANTHROPIC_API_KEY",
+  "BOX_TOKEN",
   "FACTORY_API_KEY",
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
@@ -125,6 +126,28 @@ const PROVIDER_CREDENTIAL_ENV = [
   "OPENCODE_API_KEY",
   "XAI_API_KEY",
 ] as const;
+
+type PermissionOption = { optionId?: string; kind?: string };
+
+/** Pick the least-persistent ACP permission outcome. Upstreams may advertise
+ * allow_always before allow_once; array order is not a consent contract. */
+export function selectPermissionOption(
+  options: PermissionOption[],
+  want: "allow" | "reject",
+): string | null {
+  const valid = options.filter(
+    (option): option is Required<PermissionOption> =>
+      typeof option.optionId === "string" && typeof option.kind === "string",
+  );
+  const preferredKinds = want === "allow"
+    ? ["allow_once", "allow"]
+    : ["reject_once", "reject"];
+  for (const kind of preferredKinds) {
+    const exact = valid.find((option) => option.kind === kind);
+    if (exact) return exact.optionId;
+  }
+  return valid.find((option) => option.kind.startsWith(want))?.optionId ?? null;
+}
 
 function decodeAcpConfig(defaultCli: string) {
   return (raw: unknown): AcpConfig => {
@@ -304,9 +327,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             return send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
           }
           const params = msg.params ?? {};
-          const options: Array<{ optionId?: string; kind?: string }> = Array.isArray(params.options) ? params.options : [];
-          const optionFor = (want: "allow" | "reject") =>
-            options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId ?? null;
+          const options: PermissionOption[] = Array.isArray(params.options) ? params.options : [];
+          const optionFor = (want: "allow" | "reject") => selectPermissionOption(options, want);
           const cancelled = { outcome: { outcome: "cancelled" } };
           const missing = (want: string) =>
             emit({

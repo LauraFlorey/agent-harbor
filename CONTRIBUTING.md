@@ -113,9 +113,11 @@ The SPI in [`server/contracts.ts`](server/contracts.ts) is deliberately small. A
 
 ## Secrets
 
-API keys are write-only: they land in `~/.openmausbot/config.json` via `PUT /api/config` and the API
-only ever reports `configured` booleans. Keep it that way — no logging keys, no echoing them in
-responses or events, no baking them into argv where another local process could read them.
+API keys are write-only: `PUT /api/config` sends them to macOS Keychain, or to the mode-`0600`
+`~/.openmausbot/secrets.json` fallback on Windows and Linux. `config.json` contains non-secret
+settings only, and the API reports `configured` booleans instead of values. Keep it that way — no
+logging keys, echoing them in responses or events, or baking them into argv where another local
+process could read them.
 
 ## Before you open the PR
 

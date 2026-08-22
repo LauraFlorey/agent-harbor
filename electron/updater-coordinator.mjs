@@ -1,3 +1,9 @@
+export function installDownloadedUpdate(status, updater) {
+  if (status !== "downloaded" || !updater) return false;
+  updater.quitAndInstall(true, true);
+  return true;
+}
+
 export function createUpdaterCoordinator(updater, setState) {
   let checkOperation = null;
   let downloadOperation = null;

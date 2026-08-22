@@ -2,13 +2,15 @@ import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startCua, stopCua, registerCuaIpc } from "./cua.mjs";
+import { startCua, stopCua } from "./cua.mjs";
 import { cleanupStaleSpeechSessions, finishSpeech, startSpeech, stopSpeech } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { startUpdater, registerUpdaterIpc } from "./updater.mjs";
 import capabilitiesModule from "./capabilities.cjs";
+import externalUrlModule from "./external-url.cjs";
 
 const { desktopCapabilities } = capabilitiesModule;
+const { allowedExternalUrl } = externalUrlModule;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
@@ -152,7 +154,9 @@ function createWindow() {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // Agent-authored markdown can emit any scheme — only web/mail links may
+    // reach the OS opener (file:, smb:, custom handlers stay denied).
+    if (allowedExternalUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
 
@@ -322,7 +326,6 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       { useSystemPicker: false },
     );
   }
-  registerCuaIpc();
   registerUpdaterIpc();
   // Start the CUA daemon before the window so the harness can pick up the
   // connection descriptor on first render. Never blocks window creation on

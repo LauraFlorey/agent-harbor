@@ -36,6 +36,9 @@ describe("CUA connection persistence", () => {
       expect(
         JSON.parse(fs.readFileSync(path.join(userData, "cua-connection.json"), "utf8")),
       ).toEqual(previous);
+      if (process.platform !== "win32") {
+        expect(fs.statSync(path.join(userData, "cua-connection.json")).mode & 0o777).toBe(0o600);
+      }
       expect(
         fs.existsSync(path.join(userData, "cua-connection.json.123.test.tmp")),
       ).toBe(false);

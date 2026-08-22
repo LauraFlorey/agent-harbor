@@ -4,6 +4,12 @@ const KEY = "omb-webhook-credentials";
 
 type Store = Pick<Storage, "getItem" | "setItem"> | undefined;
 
+const volatileValues = new Map<string, string>();
+const volatileStore: Store = {
+  getItem: (key) => volatileValues.get(key) ?? null,
+  setItem: (key, value) => void volatileValues.set(key, value),
+};
+
 function isCredential(value: unknown): value is WebhookCredential {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
@@ -12,9 +18,8 @@ function isCredential(value: unknown): value is WebhookCredential {
   );
 }
 
-/** Private webhook URLs are returned only when created or rotated. Keep that
- * one-time value in this app's local browser storage so changing tabs or
- * relaunching the desktop app does not force a surprise secret rotation. */
+/** Private webhook URLs are returned only when created or rotated. They remain
+ * available across panel remounts, but never persist in renderer storage. */
 export function loadWebhookCredentials(store: Store): Record<string, WebhookCredential> {
   try {
     const raw = store?.getItem(KEY);
@@ -49,9 +54,5 @@ export function removeWebhookCredential(store: Store, webhookId: string): void {
 }
 
 export function webhookCredentialStore(): Store {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
+  return volatileStore;
 }

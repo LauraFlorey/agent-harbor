@@ -11,3 +11,10 @@ electron/resources/OpenMausBot Speech.app
 electron/resources/Agent Harbor Speech.app
 release
 .omb-scratch
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key

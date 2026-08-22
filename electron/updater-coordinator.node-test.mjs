@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
+import { createUpdaterCoordinator, installDownloadedUpdate } from "./updater-coordinator.mjs";
 
 function deferred() {
   let resolve;
@@ -269,4 +269,16 @@ test("an updater error event and rejected promise produce one deterministic stat
   await download.coordinator.download();
   assert.equal(errorStates(download.states).length, 1);
   assert.deepEqual(download.getState(), { status: "error", message: "download failed once" });
+});
+
+test("install runs only after a completed download", () => {
+  const calls = [];
+  const updater = { quitAndInstall: (...args) => calls.push(args) };
+
+  assert.equal(installDownloadedUpdate("available", updater), false);
+  assert.equal(installDownloadedUpdate("downloading", updater), false);
+  assert.deepEqual(calls, []);
+
+  assert.equal(installDownloadedUpdate("downloaded", updater), true);
+  assert.deepEqual(calls, [[true, true]]);
 });

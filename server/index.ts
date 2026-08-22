@@ -2,10 +2,10 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { approvalKey, autoDecision } from "./auto-approve.ts";
@@ -54,6 +54,15 @@ import { WebhookManager } from "./webhooks.ts";
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
 const STATIC_DIR = process.env.OMB_STATIC_DIR || null;
+// Canonical root for packaged-UI statics — a bad OMB_STATIC_DIR disables
+// static serving instead of crashing boot.
+const STATIC_ROOT = (() => {
+  try {
+    return STATIC_DIR ? realpathSync(STATIC_DIR) : null;
+  } catch {
+    return null;
+  }
+})();
 const MIME: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -81,6 +90,7 @@ const COMMS_TOKEN = randomBytes(24).toString("hex");
 // a peer invoked via ask_bot runs at depth 1 and gets NO agents tool, so
 // A→B is allowed but B→C (and A→B→A loops) never start.
 const MAX_COMMS_DEPTH = 1;
+const ASK_BOT_TIMEOUT_MS = 4 * 60_000;
 // proxy entry: .ts in dev (node type-strips), .js in the packaged dist-server
 const agentsProxyPath = (() => {
   const ts = join(dirname(fileURLToPath(import.meta.url)), "drivers", "agents-proxy.ts");
@@ -129,7 +139,15 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
         finish(text || "(the bot finished without a text reply)");
       }
     });
-    const timer = setTimeout(() => finish(text || "(timed out waiting for the bot to reply)"), 4 * 60_000);
+    const timer = setTimeout(() => {
+      // Resolving only the caller leaves the peer consuming tokens and keeps
+      // it busy after Agent Harbor has declared the exchange timed out.
+      const current = store.bot(targetBotId);
+      const instance = current ? registry.get(current.modelSelection.instanceId) : undefined;
+      void instance?.adapter.interruptTurn(threadId).catch(() => {});
+      finish(text || "(timed out waiting for the bot to reply)");
+    }, ASK_BOT_TIMEOUT_MS);
+    timer.unref?.();
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
@@ -1050,6 +1068,9 @@ const webhookIngressStatus = () => ({
 // fresh session with recent room context. A member's reply may @mention
 // teammates; those get one chained turn (hop 1), never deeper.
 const groupQueues = new Map<string, Promise<void>>();
+// Bumped on room interrupt: queued and running responder turns compare
+// their captured generation and stop instead of continuing the chain.
+const groupGenerations = new Map<string, number>();
 const GROUP_CONTEXT_MESSAGES = 30;
 const MAX_GROUP_HOPS = 1;
 
@@ -1065,6 +1086,10 @@ function serializeRoomContext(threadId: string, userName: string): string {
 function broadcastGroup(groupId: string) {
   const group = store.group(groupId);
   if (group) broadcast({ kind: "group", group });
+}
+
+function groupInterrupted(groupId: string, generation: number) {
+  return (groupGenerations.get(groupId) ?? 0) !== generation;
 }
 
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
@@ -1089,6 +1114,8 @@ async function runGroupMemberTurn(
   groupId: string,
   botId: string,
   hop: number,
+  // room interrupt generation — a stale turn stops before speaking/chaining
+  generation: number,
   // bots that already spoke for this user message — "@Scout ask @Pixel"
   // must not run Pixel twice (once chained, once as a direct responder)
   spoken: Set<string> = new Set(),
@@ -1096,6 +1123,7 @@ async function runGroupMemberTurn(
   const group = store.group(groupId);
   const bot = store.bot(botId);
   if (!group || !bot) return;
+  if (groupInterrupted(groupId, generation)) return;
   spoken.add(botId);
   const instance = registry.get(bot.modelSelection.instanceId);
   const userName = cfg.profile?.name?.trim() || "User";
@@ -1110,7 +1138,24 @@ async function runGroupMemberTurn(
     return;
   }
 
+  // One turn per bot at a time, in rooms as in DMs — a bot busy in its own
+  // conversation is skipped rather than given two overlapping sessions.
+  if (bot.busy) {
+    const failure = store.appendMessage(group.threadId, {
+      role: "bot",
+      kind: "activity",
+      from: { botId: bot.id, name: bot.name, color: bot.color },
+      tool: { name: `error: ${bot.name} is busy in another conversation`, ok: false },
+    });
+    broadcast({ kind: "message", threadId: group.threadId, message: failure });
+    return;
+  }
+
   store.patchGroup(group.id, { busyBotId: bot.id });
+  // bot.busy too, not just the room's busyBotId: the 1:1 composer, task
+  // switching, and DM startTurn all gate on it.
+  store.patchBot(bot.id, { busy: true });
+  broadcast({ kind: "bot", bot: wireBot(store.bot(bot.id)!) });
   broadcastGroup(group.id);
   groupSpeakers.set(group.threadId, { botId: bot.id, name: bot.name, color: bot.color });
 
@@ -1164,17 +1209,20 @@ async function runGroupMemberTurn(
       });
   });
   groupSpeakers.delete(group.threadId);
+  store.patchBot(bot.id, { busy: false });
+  broadcast({ kind: "bot", bot: wireBot(store.bot(bot.id)!) });
   store.patchGroup(group.id, { busyBotId: null, unread: true });
   broadcastGroup(group.id);
 
-  // chained mentions: a member's reply can summon teammates — one hop only
-  if (hop < MAX_GROUP_HOPS && replyText.trim()) {
+  // chained mentions: a member's reply can summon teammates — one hop only,
+  // and never after the room was interrupted mid-turn
+  if (hop < MAX_GROUP_HOPS && replyText.trim() && !groupInterrupted(groupId, generation)) {
     const members = group.memberIds
       .map((id) => store.bot(id))
       .filter((b): b is NonNullable<typeof b> => Boolean(b) && b!.id !== bot.id);
     for (const next of roomResponders(replyText, members, { kind: "mentions" })) {
       if (spoken.has(next.id)) continue;
-      await runGroupMemberTurn(groupId, next.id, hop + 1, spoken);
+      await runGroupMemberTurn(groupId, next.id, hop + 1, generation, spoken);
     }
   }
 }
@@ -1199,12 +1247,14 @@ function startGroupTurn(groupId: string, text: string) {
   }
   if (!responders.length) return;
 
+  const generation = groupGenerations.get(groupId) ?? 0;
   const prev = groupQueues.get(groupId) ?? Promise.resolve();
   const next = prev.then(async () => {
     const spoken = new Set<string>();
     for (const responder of responders) {
       if (spoken.has(responder.id)) continue;
-      await runGroupMemberTurn(groupId, responder.id, 0, spoken);
+      if (groupInterrupted(groupId, generation)) return;
+      await runGroupMemberTurn(groupId, responder.id, 0, generation, spoken);
     }
   });
   groupQueues.set(groupId, next.catch(() => {}));
@@ -1532,12 +1582,8 @@ const server = createServer(async (req, res) => {
         credential: webhookCredential(ingress.baseUrl, created.webhook.endpointId, created.secret),
       });
     }
-    let webhookMatch = path.match(/^\/api\/webhooks\/([\w-]+)\/(rotate|test)$/);
+    let webhookMatch = path.match(/^\/api\/webhooks\/([\w-]+)\/rotate$/);
     if (webhookMatch && method === "POST") {
-      if (webhookMatch[2] === "test") {
-        const result = webhooks.test(webhookMatch[1], await readBody(req));
-        return result ? json(res, 202, result) : json(res, 404, { error: "no such webhook" });
-      }
       const rotated = webhooks.rotateSecret(webhookMatch[1]);
       if (!rotated) return json(res, 404, { error: "no such webhook" });
       const ingress = webhookIngressStatus();
@@ -1818,6 +1864,8 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const group = store.group(m[1]);
       if (!group) return json(res, 404, { error: "no such room" });
+      // stop the current speaker AND drain anything queued behind it
+      groupGenerations.set(group.id, (groupGenerations.get(group.id) ?? 0) + 1);
       const busy = group.busyBotId ? store.bot(group.busyBotId) : undefined;
       const instance = busy ? registry.get(busy.modelSelection.instanceId) : undefined;
       await instance?.adapter.interruptTurn(group.threadId).catch(() => {});
@@ -2110,6 +2158,12 @@ const server = createServer(async (req, res) => {
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
     if (m && method === "POST") {
+      // Switching mid-turn would strand the running turn: Stop and Delete
+      // target bot.threadId, which the switch just changed.
+      const current = store.bot(m[1]);
+      if (current?.busy) {
+        return json(res, 409, { error: "this bot is working — let it finish before switching tasks" });
+      }
       const switched = store.switchTask(m[1], m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(switched);
@@ -2323,7 +2377,7 @@ const server = createServer(async (req, res) => {
     // ── the bot's cloud computer (Box) ──
     m = path.match(/^\/api\/bots\/([\w-]+)\/computer$/);
     if (m && method === "GET") return json(res, 200, await box.boxStatus(cfg, m[1]));
-    m = path.match(/^\/api\/bots\/([\w-]+)\/computer\/(provision|join|sleep|exec|screenshot)$/);
+    m = path.match(/^\/api\/bots\/([\w-]+)\/computer\/(provision|join|sleep|screenshot)$/);
     if (m && method === "POST") {
       const botId = m[1];
       const bot = store.bot(botId);
@@ -2335,10 +2389,6 @@ const server = createServer(async (req, res) => {
           return json(res, 200, await box.joinBox(cfg, botId));
         case "sleep":
           return json(res, 200, await box.sleepBox(cfg, botId));
-        case "exec": {
-          const body = await readBody(req);
-          return json(res, 200, await box.execOnBox(cfg, botId, String(body.command ?? "")));
-        }
         case "screenshot":
           return json(res, 200, await box.screenshotBox(cfg, botId));
       }
@@ -2346,17 +2396,19 @@ const server = createServer(async (req, res) => {
 
     // packaged app: the server serves the built UI too (window → :8799 for
     // everything, no dev proxy to die). OMB_STATIC_DIR is set by Electron.
-    if (method === "GET" && !path.startsWith("/api/") && STATIC_DIR) {
-      const safe = path === "/" ? "/index.html" : path.replace(/\.\./g, "");
-      const file = join(STATIC_DIR, safe);
+    if (method === "GET" && !path.startsWith("/api/") && STATIC_ROOT) {
       try {
+        // Resolve symlinks and confirm containment — a string join alone would
+        // follow ".." segments or symlinks that escape the static root.
+        const file = realpathSync(join(STATIC_ROOT, path === "/" ? "/index.html" : path));
+        if (!file.startsWith(STATIC_ROOT + sep)) throw new Error("outside static root");
         const data = readFileSync(file);
         res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
         return res.end(data);
       } catch {
         // SPA fallback
         try {
-          const data = readFileSync(join(STATIC_DIR, "index.html"));
+          const data = readFileSync(join(STATIC_ROOT, "index.html"));
           res.writeHead(200, { "content-type": "text/html" });
           return res.end(data);
         } catch {

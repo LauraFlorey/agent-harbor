@@ -9,7 +9,7 @@
 // the packaged app ships no node_modules.
 import { app, ipcMain } from "electron";
 import { createRequire } from "node:module";
-import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
+import { createUpdaterCoordinator, installDownloadedUpdate } from "./updater-coordinator.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -35,7 +35,7 @@ export function registerUpdaterIpc() {
   ipcMain.handle("update:install", () => {
     // isSilent, isForceRunAfter — relaunch straight into the new version
     try {
-      autoUpdater?.quitAndInstall(true, true);
+      installDownloadedUpdate(state.status, autoUpdater);
     } catch (e) {
       setState({ status: "error", message: String(e?.message ?? e) });
     }

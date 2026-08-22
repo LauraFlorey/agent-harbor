@@ -1,5 +1,9 @@
 # OpenCode Go Integration Implementation Plan
 
+> Historical implementation record. OpenCode Go is now implemented; unchecked
+> boxes below describe the original build sequence rather than current project
+> status. See [`../../opencode-go.md`](../../opencode-go.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add OpenCode Go as an optional ACP-backed OpenMausBot engine with dynamic models, write-only credentials, setup UX, and comprehensive tests.
