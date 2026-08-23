@@ -5,10 +5,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LocalVmLease } from "./local-vm-lease.ts";
 import { localVmMcpEndpoint, type LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
-import { TurnScopedMcpClient, withTurnScopedMcpClient } from "./mcp-client.ts";
+import {
+  TurnScopedMcpClient,
+  type TurnMcpClientOptions,
+  withTurnScopedMcpClient,
+} from "./mcp-client.ts";
 import {
   createApplicationToolApprovalChannel,
+  createApprovedToolRequests,
   ToolApprovalError,
   type ApplicationToolApprovalDecisions,
   type ToolApprovalChallenge,
@@ -18,6 +24,33 @@ import {
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_MCP = join(SERVER_DIR, "testing", "fake-mcp-server.ts");
 const scratch: string[] = [];
+let leaseSequence = 0;
+
+function leasedOptions(options: Omit<TurnMcpClientOptions, "turnLease"> = {}): TurnMcpClientOptions {
+  const owner = new LocalVmLease(60_000);
+  const suffix = ++leaseSequence;
+  const binding = Object.freeze({
+    roomId: `approval-room-${suffix}`,
+    turnId: `approval-turn-${suffix}`,
+    sessionId: `approval-session-${suffix}`,
+  });
+  return { ...options, turnLease: Object.freeze({ handle: owner.acquireTurn(binding), binding }) };
+}
+
+function connectLeasedMcp(
+  endpoint: LocalVmMcpEndpoint,
+  options: Omit<TurnMcpClientOptions, "turnLease"> = {},
+): Promise<TurnScopedMcpClient> {
+  return TurnScopedMcpClient.connect(endpoint, leasedOptions(options));
+}
+
+function withLeasedMcpClient<T>(
+  endpoint: LocalVmMcpEndpoint,
+  options: Omit<TurnMcpClientOptions, "turnLease">,
+  providerTurn: (client: TurnScopedMcpClient) => Promise<T>,
+): Promise<T> {
+  return withTurnScopedMcpClient(endpoint, leasedOptions(options), providerTurn);
+}
 
 interface FakeState {
   parentPid: number;
@@ -104,9 +137,19 @@ afterEach(async () => {
 });
 
 describe("turn-scoped Local VM tool approval gate", () => {
+  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER, 300_001])(
+    "rejects unsafe approval timeout %s",
+    (approvalTimeoutMs) => {
+      expect(() => createApprovedToolRequests([], async () => ({ callId: "never", content: [], isError: false }), {
+        turnId: "turn-timeout-validation",
+        approvalTimeoutMs,
+      })).toThrow(expect.objectContaining({ code: "invalid_call" }));
+    },
+  );
+
   it("defaults to deny when application approval is unavailable", async () => {
     const { dir, endpoint } = await fakeEndpoint();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-default-deny" });
       expect(Object.keys(requests).sort()).toEqual(["auditRecords", "close", "execute", "lifecycleResources"]);
       await expect(requests.execute({ id: "call-1", name: "click", arguments: { x: 1, y: 2 } }))
@@ -121,7 +164,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("executes exactly once after an exact explicit decision and freezes normalized arguments", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-exact", approval: app.channel });
       expect(() => client.createToolApprovalSession({ turnId: "turn-substitution", approval: app.channel }))
         .toThrow(expect.objectContaining({ code: "invalid_call" }));
@@ -158,7 +201,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("cannot be self-approved by model arguments and redacts approval and audit data", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-untrusted", approval: app.channel });
       const secret = "do-not-display-this-secret";
       const execution = requests.execute({
@@ -191,28 +234,38 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const clonedEndpoint = await fakeEndpoint();
     const firstApp = applicationChannel();
     const secondApp = applicationChannel();
-    const firstClient = await TurnScopedMcpClient.connect(firstEndpoint.endpoint);
-    const secondClient = await TurnScopedMcpClient.connect(secondEndpoint.endpoint);
-    const clonedClient = await TurnScopedMcpClient.connect(clonedEndpoint.endpoint);
+    let firstRequest!: Extract<ToolApprovalEvent, { type: "request.opened" }>;
+    let secondRequest!: Extract<ToolApprovalEvent, { type: "request.opened" }>;
+    const firstClient = await connectLeasedMcp(firstEndpoint.endpoint);
     try {
       const first = firstClient.createToolApprovalSession({ turnId: "turn-key-a", approval: firstApp.channel });
-      const second = secondClient.createToolApprovalSession({ turnId: "turn-key-b", approval: secondApp.channel });
       const firstExecution = first.execute({ id: "same-call", name: "click", arguments: { x: 1, y: 2 } });
-      const secondExecution = second.execute({ id: "same-call", name: "click", arguments: { x: 1, y: 2 } });
-      const firstRequest = (await opened(firstApp.events))[0]!;
-      const secondRequest = (await opened(secondApp.events))[0]!;
-
-      expect(firstRequest.challenge.requestId).not.toBe(secondRequest.challenge.requestId);
-      expect(firstRequest.challenge.attemptId).not.toBe(secondRequest.challenge.attemptId);
-      expect(firstRequest.challenge.destinationId).not.toBe(secondRequest.challenge.destinationId);
-      expect(firstRequest.challenge.callIdHash).not.toBe(secondRequest.challenge.callIdHash);
-      expect(firstRequest.challenge.argumentsHash).not.toBe(secondRequest.challenge.argumentsHash);
-      expect(firstRequest.challenge.toolDefinitionHash).not.toBe(secondRequest.challenge.toolDefinitionHash);
-
+      firstRequest = (await opened(firstApp.events))[0]!;
       expect(firstApp.decisions.resolve({ challenge: firstRequest.challenge, behavior: "deny" })).toBe(true);
+      await Promise.allSettled([firstExecution]);
+    } finally {
+      await firstClient.finish();
+    }
+    const secondClient = await connectLeasedMcp(secondEndpoint.endpoint);
+    try {
+      const second = secondClient.createToolApprovalSession({ turnId: "turn-key-b", approval: secondApp.channel });
+      const secondExecution = second.execute({ id: "same-call", name: "click", arguments: { x: 1, y: 2 } });
+      secondRequest = (await opened(secondApp.events))[0]!;
       expect(secondApp.decisions.resolve({ challenge: secondRequest.challenge, behavior: "deny" })).toBe(true);
-      await Promise.allSettled([firstExecution, secondExecution]);
+      await Promise.allSettled([secondExecution]);
+    } finally {
+      await secondClient.finish();
+    }
 
+    expect(firstRequest.challenge.requestId).not.toBe(secondRequest.challenge.requestId);
+    expect(firstRequest.challenge.attemptId).not.toBe(secondRequest.challenge.attemptId);
+    expect(firstRequest.challenge.destinationId).not.toBe(secondRequest.challenge.destinationId);
+    expect(firstRequest.challenge.callIdHash).not.toBe(secondRequest.challenge.callIdHash);
+    expect(firstRequest.challenge.argumentsHash).not.toBe(secondRequest.challenge.argumentsHash);
+    expect(firstRequest.challenge.toolDefinitionHash).not.toBe(secondRequest.challenge.toolDefinitionHash);
+
+    const clonedClient = await connectLeasedMcp(clonedEndpoint.endpoint);
+    try {
       const clonedChannel = structuredClone(firstApp.channel);
       const cloned = clonedClient.createToolApprovalSession({ turnId: "turn-cloned", approval: clonedChannel });
       await expect(cloned.execute({ id: "cloned-call", name: "click", arguments: { x: 1, y: 2 } }))
@@ -220,7 +273,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
       expect(() => structuredClone(firstApp.decisions)).toThrow();
       expect((await readState(clonedEndpoint.dir)).methods).not.toContain("tools/call");
     } finally {
-      await Promise.all([firstClient.finish(), secondClient.finish(), clonedClient.finish()]);
+      await clonedClient.finish();
     }
     await Promise.all([
       assertReleased(firstEndpoint.dir),
@@ -233,21 +286,19 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const firstEndpoint = await fakeEndpoint();
     const secondEndpoint = await fakeEndpoint();
     const app = applicationChannel();
-    const firstClient = await TurnScopedMcpClient.connect(firstEndpoint.endpoint);
-    const secondClient = await TurnScopedMcpClient.connect(secondEndpoint.endpoint);
+    let requestA!: Extract<ToolApprovalEvent, { type: "request.opened" }>;
+    let requestA2!: Extract<ToolApprovalEvent, { type: "request.opened" }>;
+    const firstClient = await connectLeasedMcp(firstEndpoint.endpoint);
     try {
       const first = firstClient.createToolApprovalSession({ turnId: "turn-a", approval: app.channel });
-      const second = secondClient.createToolApprovalSession({ turnId: "turn-b", approval: app.channel });
       const firstExecution = first.execute({ id: "call-a", name: "click", arguments: { x: 1, y: 2 } });
       const secondExecution = first.execute({ id: "call-a-2", name: "click", arguments: { x: 3, y: 4 } });
       const malformedExecution = first.execute({ id: "call-a-3", name: "click", arguments: { x: 7, y: 8 } });
-      const thirdExecution = second.execute({ id: "call-b", name: "click", arguments: { x: 5, y: 6 } });
-      const requests = await opened(app.events, 4);
+      const requests = await opened(app.events, 3);
       const turnARequests = requests.filter((request) => request.challenge.turnId === "turn-a");
-      const requestA = turnARequests[0]!;
-      const requestA2 = turnARequests[1]!;
+      requestA = turnARequests[0]!;
+      requestA2 = turnARequests[1]!;
       const malformedRequest = turnARequests[2]!;
-      const requestB = requests.find((request) => request.challenge.turnId === "turn-b")!;
 
       const argumentMutation = {
         ...requestA.challenge,
@@ -268,18 +319,24 @@ describe("turn-scoped Local VM tool approval gate", () => {
       expect(app.decisions.resolve({ challenge: malformedToken, behavior: "allow" })).toBe(true);
       await expect(malformedExecution).rejects.toMatchObject({ code: "approval_denied" });
 
-      const crossTurn = {
-        ...requestA.challenge,
-        requestId: requestB.challenge.requestId,
-      };
+      expect(approve(app.decisions, requestA2.challenge)).toBe(false);
+      expect((await readState(firstEndpoint.dir)).methods).not.toContain("tools/call");
+    } finally {
+      await firstClient.finish();
+    }
+
+    const secondClient = await connectLeasedMcp(secondEndpoint.endpoint);
+    try {
+      const second = secondClient.createToolApprovalSession({ turnId: "turn-b", approval: app.channel });
+      const thirdExecution = second.execute({ id: "call-b", name: "click", arguments: { x: 5, y: 6 } });
+      const requestB = (await opened(app.events, 4)).find((request) => request.challenge.turnId === "turn-b")!;
+      const crossTurn = { ...requestA.challenge, requestId: requestB.challenge.requestId };
       expect(app.decisions.resolve({ challenge: crossTurn, behavior: "allow" })).toBe(true);
       await expect(thirdExecution).rejects.toMatchObject({ code: "approval_denied" });
-      expect(approve(app.decisions, requestA2.challenge)).toBe(false);
       expect(approve(app.decisions, requestB.challenge)).toBe(false);
-      expect((await readState(firstEndpoint.dir)).methods).not.toContain("tools/call");
       expect((await readState(secondEndpoint.dir)).methods).not.toContain("tools/call");
     } finally {
-      await Promise.all([firstClient.finish(), secondClient.finish()]);
+      await secondClient.finish();
     }
     await Promise.all([assertReleased(firstEndpoint.dir), assertReleased(secondEndpoint.dir)]);
   });
@@ -287,7 +344,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("rejects unknown tools, malformed JSON, non-object roots, schema bypasses, and unsafe objects before approval", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-validation", approval: app.channel });
       const cases: Array<[string, { id: unknown; name: unknown; arguments: unknown }, string]> = [
         ["unknown", { id: "bad-1", name: "provider_supplied_tool", arguments: {} }, "unknown_tool"],
@@ -338,13 +395,13 @@ describe("turn-scoped Local VM tool approval gate", () => {
     "oversized-schema",
   ])("rejects unsafe or resource-heavy discovered schema mode %s", async (mode) => {
     const { dir, endpoint } = await fakeEndpoint(mode);
-    await expect(TurnScopedMcpClient.connect(endpoint)).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code: "invalid_response" });
     await assertReleased(dir);
   });
 
   it("fails closed on unsupported schema vocabularies during compilation", async () => {
     const { dir, endpoint } = await fakeEndpoint("unsupported-schema");
-    const client = await TurnScopedMcpClient.connect(endpoint);
+    const client = await connectLeasedMcp(endpoint);
     try {
       expect(() => client.createToolApprovalSession({ turnId: "turn-unsupported-schema" }))
         .toThrow(expect.objectContaining({ code: "invalid_call" }));
@@ -358,7 +415,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("canonicalizes JSON deterministically and rejects sparse, accessor, cyclic, prototype, symbol, and pollution shapes", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-canonical", approval: app.channel });
       const first = requests.execute({
         id: "canonical-a",
@@ -426,7 +483,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("accepts structurally valid nested JSON but rejects duplicate and conflicting call identities", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-identity", approval: app.channel });
       const nestedCall = {
         id: "nested-1",
@@ -462,7 +519,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("supports partial multi-call approval without executing denied calls", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-partial", approval: app.channel });
       const click = requests.execute({ id: "partial-click", name: "click", arguments: { x: 5, y: 6 } });
       const state = requests.execute({ id: "partial-state", name: "get_desktop_state", arguments: {} });
@@ -484,7 +541,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("bounds concurrent approvals, active calls, replay records, and audit records", async () => {
     const pendingEndpoint = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(pendingEndpoint.endpoint, {}, async (client) => {
+    await withLeasedMcpClient(pendingEndpoint.endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-bounds", approval: app.channel });
       const calls = Array.from({ length: 32 }, (_, index) =>
         requests.execute({ id: `bounded-${index}`, name: "click", arguments: { x: index, y: index } })
@@ -502,7 +559,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     await assertReleased(pendingEndpoint.dir);
 
     const replayEndpoint = await fakeEndpoint();
-    await withTurnScopedMcpClient(replayEndpoint.endpoint, {}, async (client) => {
+    await withLeasedMcpClient(replayEndpoint.endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-replay-bound" });
       for (let index = 0; index < 256; index += 1) {
         await expect(requests.execute({ id: `replay-${index}`, name: "click", arguments: { x: 1, y: 2 } }))
@@ -520,7 +577,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("fails closed on approval timeout and releases timers and listeners on close", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({
         turnId: "turn-timeout",
         approval: app.channel,
@@ -528,7 +585,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
       });
       await expect(requests.execute({ id: "timeout-1", name: "click", arguments: { x: 1, y: 2 } }))
         .rejects.toMatchObject({ code: "approval_timeout" });
-      expect(requests.lifecycleResources()).toEqual({ activeCalls: 0, listeners: 0, pending: 0, timers: 0, seenCalls: 1 });
+      expect(requests.lifecycleResources()).toEqual({ activeCalls: 0, listeners: 1, pending: 0, timers: 0, seenCalls: 1 });
       expect(app.decisions.resolve({
         challenge: (await opened(app.events))[0]!.challenge,
         behavior: "allow",
@@ -543,7 +600,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
   it("uses monotonic expiry despite wall-clock changes and rechecks expiry before execution", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({
         turnId: "turn-monotonic",
         approval: app.channel,
@@ -573,7 +630,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const { dir, endpoint } = await fakeEndpoint();
     const controller = new AbortController();
     const app = applicationChannel();
-    const client = await TurnScopedMcpClient.connect(endpoint, { signal: controller.signal });
+    const client = await connectLeasedMcp(endpoint, { signal: controller.signal });
     const requests = client.createToolApprovalSession({ turnId: "turn-abort", approval: app.channel });
     const execution = requests.execute({ id: "abort-1", name: "click", arguments: { x: 1, y: 2 } });
     await opened(app.events);
@@ -586,7 +643,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const raceEndpoint = await fakeEndpoint();
     const raceController = new AbortController();
     const raceApp = applicationChannel();
-    const raceClient = await TurnScopedMcpClient.connect(raceEndpoint.endpoint, { signal: raceController.signal });
+    const raceClient = await connectLeasedMcp(raceEndpoint.endpoint, { signal: raceController.signal });
     const raceRequests = raceClient.createToolApprovalSession({ turnId: "turn-abort-after-allow", approval: raceApp.channel });
     const raceExecution = raceRequests.execute({ id: "abort-after-allow", name: "click", arguments: { x: 3, y: 4 } });
     const raceApproval = (await opened(raceApp.events))[0]!;
@@ -604,7 +661,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const providerApp = applicationChannel();
     let providerResources: ReturnType<ReturnType<TurnScopedMcpClient["createToolApprovalSession"]>["lifecycleResources"]> | undefined;
     let pendingResult: Promise<unknown> | undefined;
-    await expect(withTurnScopedMcpClient(provider.endpoint, {}, async (client) => {
+    await expect(withLeasedMcpClient(provider.endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-provider-failure", approval: providerApp.channel });
       pendingResult = requests.execute({ id: "provider-1", name: "click", arguments: { x: 1, y: 2 } }).catch((error) => error);
       await opened(providerApp.events);
@@ -617,7 +674,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
 
     const mcp = await fakeEndpoint("tool-rpc-error");
     const mcpApp = applicationChannel();
-    const mcpClient = await TurnScopedMcpClient.connect(mcp.endpoint);
+    const mcpClient = await connectLeasedMcp(mcp.endpoint);
     const requests = mcpClient.createToolApprovalSession({ turnId: "turn-mcp-failure", approval: mcpApp.channel });
     const execution = requests.execute({ id: "mcp-1", name: "click", arguments: { x: 1, y: 2 } });
     const sibling = requests.execute({ id: "mcp-sibling", name: "get_desktop_state", arguments: {} })
@@ -636,7 +693,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
 
     const oversized = await fakeEndpoint("oversized-tool-result");
     const oversizedApp = applicationChannel();
-    const oversizedClient = await TurnScopedMcpClient.connect(oversized.endpoint);
+    const oversizedClient = await connectLeasedMcp(oversized.endpoint);
     const oversizedRequests = oversizedClient.createToolApprovalSession({
       turnId: "turn-oversized-result",
       approval: oversizedApp.channel,
@@ -651,7 +708,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
 
     const paired = await fakeEndpoint("paired-tool-failure");
     const pairedApp = applicationChannel();
-    const pairedClient = await TurnScopedMcpClient.connect(paired.endpoint);
+    const pairedClient = await connectLeasedMcp(paired.endpoint);
     const pairedRequests = pairedClient.createToolApprovalSession({
       turnId: "turn-paired-failure",
       approval: pairedApp.channel,
@@ -676,7 +733,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     const { channel } = createApplicationToolApprovalChannel(() => {
       throw new Error("application unavailable");
     });
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       const requests = client.createToolApprovalSession({ turnId: "turn-handler-failure", approval: channel });
       await expect(requests.execute({ id: "handler-1", name: "click", arguments: { x: 1, y: 2 } }))
         .rejects.toMatchObject({ code: "approval_unavailable" });

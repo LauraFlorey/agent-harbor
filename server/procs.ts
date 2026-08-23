@@ -9,6 +9,7 @@
 //      unless windowsHide is set.
 import {
   spawn,
+  spawnSync,
   execFile,
   type ChildProcess,
   type ChildProcessByStdio,
@@ -20,19 +21,27 @@ import { join } from "node:path";
 import { resolveCliSpawn, type ResolvedSpawn } from "./env-path.ts";
 
 const TREE_KILL_GRACE_MS = 1_000;
-const treeStops = new Map<number, Promise<void>>();
+const treeStops = new Set<Promise<void>>();
+const stoppingTrees = new WeakSet<ChildProcess>();
 
-function trackedTreeStop(pid: number, stop: () => Promise<void>): void {
-  if (treeStops.has(pid)) return;
-  const task = stop().finally(() => treeStops.delete(pid));
-  treeStops.set(pid, task);
+function trackedTreeStop(child: ChildProcess, stop: () => Promise<void>): void {
+  if (stoppingTrees.has(child)) return;
+  stoppingTrees.add(child);
+  let task: Promise<void>;
+  task = stop().finally(() => treeStops.delete(task));
+  treeStops.add(task);
 }
 
 /** Wait until every process tree already asked to stop has received its
  * forced fallback. Server shutdown calls this after disposing the fleet so
  * it cannot exit in the gap between SIGTERM and SIGKILL. */
 export async function drainCliTrees(): Promise<void> {
-  while (treeStops.size) await Promise.allSettled([...treeStops.values()]);
+  while (treeStops.size) await Promise.allSettled([...treeStops]);
+}
+
+function ownedProcessId(child: ChildProcess): number | null {
+  const pid = child.pid;
+  return Number.isSafeInteger(pid) && (pid as number) > 1 ? pid as number : null;
 }
 
 export function resolveCli(cli: string, args: string[] = []): ResolvedSpawn {
@@ -85,11 +94,14 @@ export function describeSpawnFailure(
 
 /** Stop a CLI and every process it spawned (MCP proxies included). */
 export function killCliTree(child: ChildProcess): void {
-  const pid = child.pid;
-  if (!pid || child.exitCode !== null || child.signalCode !== null) return;
+  const pid = ownedProcessId(child);
+  if (pid === null) return;
 
   if (process.platform === "win32") {
-    trackedTreeStop(pid, () => new Promise<void>((resolve) => {
+    // taskkill identifies a tree by its live root PID. Refuse to address a
+    // stale PID after Node has observed the owned root exit.
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    trackedTreeStop(child, () => new Promise<void>((resolve) => {
       const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR ?? "C:\\Windows";
       const taskkill = join(systemRoot, "System32", "taskkill.exe");
       execFile(taskkill, ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err) => {
@@ -116,7 +128,7 @@ export function killCliTree(child: ChildProcess): void {
       /* already gone */
     }
   }
-  trackedTreeStop(pid, async () => {
+  trackedTreeStop(child, async () => {
     await new Promise((resolve) => setTimeout(resolve, TREE_KILL_GRACE_MS));
     try {
       // The group may outlive its leader (for example an MCP proxy whose CLI
@@ -127,6 +139,38 @@ export function killCliTree(child: ChildProcess): void {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
+}
+
+/** Last-chance process-exit fence. Unlike killCliTree, this cannot wait for a
+ * grace period because Node's `exit` event does not run asynchronous work. */
+export function killCliTreeNow(child: ChildProcess): void {
+  const pid = ownedProcessId(child);
+  if (pid === null) return;
+  if (process.platform === "win32") {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR ?? "C:\\Windows";
+    const taskkill = join(systemRoot, "System32", "taskkill.exe");
+    const result = spawnSync(taskkill, ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    if (!result.error && result.status === 0) return;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 /** Per-turn broker channel: unix socket on POSIX, named pipe on Windows

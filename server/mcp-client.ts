@@ -13,14 +13,30 @@ import type {
   ProviderToolResult,
   ProviderToolResultContent,
 } from "./contracts.ts";
+import {
+  assertLocalVmTurnExecution,
+  claimLocalVmTurnSpawn,
+  releaseLocalVmTurnLease,
+  type LocalVmTurnBinding,
+  type LocalVmTurnLeaseHandle,
+} from "./local-vm-lease.ts";
 import { isLocalVmMcpEndpoint, type LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
-import { drainCliTrees, killCliTree } from "./procs.ts";
+import { drainCliTrees, killCliTree, killCliTreeNow } from "./procs.ts";
 import {
   createApprovedToolRequests,
   type ApprovedToolRequests,
   ToolApprovalError,
   type ToolApprovalSessionOptions,
 } from "./tool-approval.ts";
+import {
+  deadlineRemainingMs,
+  mcpRequestDeadlineNs,
+  recordToolResult,
+  toolExecutionDeadlineNs,
+  toolResultByteLimit,
+  type ApplicationToolTurnControl,
+  type ToolCallBudget,
+} from "./tool-turn-control.ts";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -69,6 +85,11 @@ export class TurnMcpError extends Error {
 export interface TurnMcpClientOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  turnControl?: ApplicationToolTurnControl;
+  turnLease: Readonly<{
+    handle: LocalVmTurnLeaseHandle;
+    binding: LocalVmTurnBinding;
+  }>;
 }
 
 interface PendingRequest {
@@ -328,7 +349,12 @@ function validateTools(value: unknown): ProviderToolDefinition[] {
   });
 }
 
-function validateToolResult(value: unknown, callId: string): ProviderToolResult {
+function validateToolResult(
+  value: unknown,
+  callId: string,
+  byteLimit = MAX_MESSAGE_BYTES,
+  onBytes?: (itemBytes: number, totalBytes: number) => void,
+): ProviderToolResult {
   if (
     !isRecord(value) ||
     !Array.isArray(value.content) ||
@@ -343,10 +369,12 @@ function validateToolResult(value: unknown, callId: string): ProviderToolResult 
       throw new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool result");
     }
     if (item.type === "text" && typeof item.text === "string") {
-      bytes += Buffer.byteLength(item.text);
-      if (bytes > MAX_MESSAGE_BYTES) {
+      const itemBytes = Buffer.byteLength(item.text);
+      bytes += itemBytes;
+      if (bytes > byteLimit) {
         throw new TurnMcpError("invalid_response", "Local VM MCP tool result exceeded the safety limit");
       }
+      onBytes?.(itemBytes, bytes);
       return Object.freeze({ type: "text" as const, text: item.text });
     }
     if (
@@ -355,10 +383,12 @@ function validateToolResult(value: unknown, callId: string): ProviderToolResult 
       typeof item.mimeType === "string" &&
       /^image\/[A-Za-z0-9.+-]{1,64}$/.test(item.mimeType)
     ) {
-      bytes += Buffer.byteLength(item.data) + Buffer.byteLength(item.mimeType);
-      if (bytes > MAX_MESSAGE_BYTES) {
+      const itemBytes = Buffer.byteLength(item.data) + Buffer.byteLength(item.mimeType);
+      bytes += itemBytes;
+      if (bytes > byteLimit) {
         throw new TurnMcpError("invalid_response", "Local VM MCP tool result exceeded the safety limit");
       }
+      onBytes?.(itemBytes, bytes);
       return Object.freeze({ type: "image" as const, data: item.data, mimeType: item.mimeType });
     }
     throw new TurnMcpError("invalid_response", "Local VM MCP returned an unsupported tool result");
@@ -378,6 +408,7 @@ export class TurnScopedMcpClient {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly signal?: AbortSignal;
   private readonly onAbort: () => void;
+  private readonly onHostExit: () => void;
   private nextId = 1;
   private buffer = "";
   private readonly decoder = new StringDecoder("utf8");
@@ -385,6 +416,8 @@ export class TurnScopedMcpClient {
   private failure: TurnMcpError | null = null;
   private stopTask: Promise<void> | null = null;
   private readonly requestTimeoutMs: number;
+  private readonly turnControl?: ApplicationToolTurnControl;
+  private readonly turnLease?: TurnMcpClientOptions["turnLease"];
   private discoveredTools: readonly ProviderToolDefinition[] = [];
   private readonly approvalSessions = new Set<ApprovedToolRequests>();
   private approvalSessionCreated = false;
@@ -395,60 +428,88 @@ export class TurnScopedMcpClient {
     child: ChildProcessByStdio<Writable, Readable, Readable>,
     requestTimeoutMs: number,
     signal?: AbortSignal,
+    turnControl?: ApplicationToolTurnControl,
+    turnLease?: TurnMcpClientOptions["turnLease"],
   ) {
     this.child = child;
     this.requestTimeoutMs = requestTimeoutMs;
     this.signal = signal;
+    this.turnControl = turnControl;
+    this.turnLease = turnLease;
     this.termination = new Promise<never>((_resolve, reject) => {
       this.rejectTermination = reject;
     });
     this.termination.catch(() => {});
     this.onAbort = () => this.fail(new TurnMcpError("aborted", "Local VM MCP turn was aborted"));
+    this.onHostExit = () => {
+      this.fail(new TurnMcpError("closed", "Agent Harbor exited during the Local VM MCP turn"));
+      killCliTreeNow(this.child);
+      if (this.turnLease) releaseLocalVmTurnLease(this.turnLease.handle, this.turnLease.binding);
+    };
   }
 
   static async connect(
     endpoint: LocalVmMcpEndpoint,
-    options: TurnMcpClientOptions = {},
+    options: TurnMcpClientOptions,
   ): Promise<TurnScopedMcpClient> {
-    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-      throw new TurnMcpError("invalid_endpoint", "Local VM MCP timeout must be positive");
+    const turnLease = options.turnLease;
+    if (!turnLease) {
+      throw new TurnMcpError("invalid_endpoint", "Local VM MCP child creation requires an application lease");
     }
-    if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
-    const validated = await validateEndpoint(endpoint);
-    if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
-
-    const guardian = await trustedFile(GUARDIAN_PATH, SERVER_ROOT);
-    if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
-    const child = spawn(validated.command, [guardian], {
-      cwd: SERVER_ROOT,
-      env: buildAgentEnvironment({
-        overrides: {
-          ...validated.env,
-          AGENT_HARBOR_MCP_COMMAND: validated.command,
-          AGENT_HARBOR_MCP_ARGS: JSON.stringify(validated.args),
-        },
-      }),
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(process.platform === "win32" ? { windowsHide: true } : { detached: true }),
-    });
-    const client = new TurnScopedMcpClient(child, timeoutMs, options.signal);
-    const deadline = Date.now() + timeoutMs;
+    let client: TurnScopedMcpClient | null = null;
     try {
+      const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 5 * 60_000) {
+        throw new TurnMcpError("invalid_endpoint", "Local VM MCP timeout is outside the safety limit");
+      }
+      if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
+      const validated = await validateEndpoint(endpoint);
+      if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
+
+      const guardian = await trustedFile(GUARDIAN_PATH, SERVER_ROOT);
+      if (options.signal?.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
+      const leaseSignal = claimLocalVmTurnSpawn(turnLease.handle, turnLease.binding);
+      const signal = options.signal ? AbortSignal.any([leaseSignal, options.signal]) : leaseSignal;
+      if (signal.aborted) throw new TurnMcpError("aborted", "Local VM MCP turn was aborted");
+      const child = spawn(validated.command, [guardian], {
+        cwd: SERVER_ROOT,
+        env: buildAgentEnvironment({
+          overrides: {
+            ...validated.env,
+            AGENT_HARBOR_MCP_COMMAND: validated.command,
+            AGENT_HARBOR_MCP_ARGS: JSON.stringify(validated.args),
+          },
+        }),
+        stdio: ["pipe", "pipe", "pipe"],
+        ...(process.platform === "win32" ? { windowsHide: true } : { detached: true }),
+      });
+      client = new TurnScopedMcpClient(
+        child,
+        timeoutMs,
+        signal,
+        options.turnControl,
+        turnLease,
+      );
+      const startupDeadline = process.hrtime.bigint() + BigInt(Math.ceil(timeoutMs * 1_000_000));
       client.attach();
       await client.request("initialize", {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: {},
         clientInfo: { name: "agent-harbor", version: "0.1" },
-      }, deadline);
+      }, options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline);
       client.notify("notifications/initialized");
-      const tools = validateTools(await client.request("tools/list", {}, deadline));
+      const tools = validateTools(await client.request(
+        "tools/list",
+        {},
+        options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline,
+      ));
       client.discoveredTools = Object.freeze(
         tools.map((tool) => Object.freeze(tool)),
       );
       return client;
     } catch (error) {
-      await client.dispose();
+      if (client) await client.dispose().catch(() => {});
+      else releaseLocalVmTurnLease(turnLease.handle, turnLease.binding);
       throw error;
     }
   }
@@ -460,7 +521,7 @@ export class TurnScopedMcpClient {
   /** Creates a provider-facing request handle with no approval method. Its
    * execution authority is derived only from this client's trusted discovery. */
   createToolApprovalSession(
-    options: Omit<ToolApprovalSessionOptions, "signal">,
+    options: Omit<ToolApprovalSessionOptions, "signal" | "turnControl">,
   ): ApprovedToolRequests {
     if (this.stopped) throw this.failure ?? new TurnMcpError("closed", "Local VM MCP turn is closed");
     if (this.approvalSessionCreated) {
@@ -469,8 +530,8 @@ export class TurnScopedMcpClient {
     let session: ApprovedToolRequests;
     session = createApprovedToolRequests(
       this.discoveredTools,
-      (call) => this.executeApprovedTool(call),
-      { ...options, signal: this.signal },
+      (call, budget) => this.executeApprovedTool(call, budget),
+      { ...options, signal: this.signal, ...(this.turnControl ? { turnControl: this.turnControl } : {}) },
     );
     this.approvalSessionCreated = true;
     this.approvalSessions.add(session);
@@ -483,7 +544,7 @@ export class TurnScopedMcpClient {
   lifecycleResources(): { child: number; listeners: number; pending: number; timers: number } {
     return {
       child: this.stopped ? 0 : 1,
-      listeners: this.stopped ? 0 : 6 + (this.signal ? 1 : 0),
+      listeners: this.stopped ? 0 : 7 + (this.signal ? 1 : 0),
       pending: this.pending.size,
       timers: this.timers.size,
     };
@@ -504,6 +565,7 @@ export class TurnScopedMcpClient {
     this.child.stdin.on("error", this.onStdinError);
     this.child.stderr.on("error", this.onStderrError);
     this.child.stderr.resume();
+    process.once("exit", this.onHostExit);
     this.signal?.addEventListener("abort", this.onAbort, { once: true });
     if (this.signal?.aborted) this.onAbort();
   }
@@ -583,36 +645,59 @@ export class TurnScopedMcpClient {
   private request(
     method: string,
     params: unknown,
-    deadline: number,
+    deadlineNs: bigint,
     validate?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (this.stopped) {
       return Promise.reject(this.failure ?? new TurnMcpError("closed", "Local VM MCP turn is closed"));
     }
-    const remaining = deadline - Date.now();
+    const remaining = deadlineRemainingMs(deadlineNs);
     if (remaining <= 0) return Promise.reject(new TurnMcpError("timeout", "Local VM MCP request timed out"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let pending: PendingRequest;
+      const expire = (): void => {
+        this.timers.delete(pending.timer);
+        const next = deadlineRemainingMs(deadlineNs);
+        if (next > 0) {
+          pending.timer = setTimeout(expire, next);
+          pending.timer.unref?.();
+          this.timers.add(pending.timer);
+          return;
+        }
         this.pending.delete(id);
-        this.timers.delete(timer);
         const error = new TurnMcpError("timeout", "Local VM MCP request timed out");
         reject(error);
         this.fail(error);
-      }, remaining);
+      };
+      const timer = setTimeout(expire, remaining);
       timer.unref?.();
       this.timers.add(timer);
-      this.pending.set(id, { resolve, reject, timer, ...(validate ? { validate } : {}) });
+      pending = { resolve, reject, timer, ...(validate ? { validate } : {}) };
+      this.pending.set(id, pending);
       this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
 
-  private async executeApprovedTool(call: ProviderToolCall): Promise<ProviderToolResult> {
+  private async executeApprovedTool(call: ProviderToolCall, budget?: ToolCallBudget): Promise<ProviderToolResult> {
     try {
+      if (this.turnLease) assertLocalVmTurnExecution(this.turnLease.handle, this.turnLease.binding);
+      const executionDeadline = this.turnControl && budget
+        ? toolExecutionDeadlineNs(this.turnControl, budget)
+        : process.hrtime.bigint() + BigInt(Math.ceil(this.requestTimeoutMs * 1_000_000));
+      const requestDeadline = this.turnControl
+        ? mcpRequestDeadlineNs(this.turnControl, budget)
+        : executionDeadline;
+      const deadline = requestDeadline < executionDeadline ? requestDeadline : executionDeadline;
+      const byteLimit = this.turnControl && budget
+        ? toolResultByteLimit(this.turnControl, budget)
+        : MAX_MESSAGE_BYTES;
       const result = await this.request("tools/call", {
         name: call.name,
         arguments: call.arguments,
-      }, Date.now() + this.requestTimeoutMs, (value) => validateToolResult(value, call.id));
+      }, deadline, (value) => validateToolResult(value, call.id, byteLimit, (itemBytes) => {
+        if (this.turnControl && budget) recordToolResult(this.turnControl, budget, itemBytes);
+      }));
       return result as ProviderToolResult;
     } catch (error) {
       const failure = error instanceof TurnMcpError
@@ -628,40 +713,58 @@ export class TurnScopedMcpClient {
     this.failure = error;
     this.rejectTermination(error);
     for (const pending of this.pending.values()) pending.reject(error);
-    void this.dispose();
+    void this.dispose().catch(() => {});
   }
 
   private dispose(): Promise<void> {
     if (this.stopTask) return this.stopTask;
     this.stopped = true;
     this.stopTask = (async () => {
-      this.signal?.removeEventListener("abort", this.onAbort);
-      this.child.stdout.off("data", this.onData);
-      this.child.stdout.off("error", this.onStdoutError);
-      this.child.off("error", this.onProcessError);
-      this.child.off("exit", this.onProcessExit);
-      this.child.stdin.off("error", this.onStdinError);
-      this.child.stderr.off("error", this.onStderrError);
-      this.child.stdout.pause();
-      this.child.stderr.pause();
-      for (const session of this.approvalSessions) session.close();
-      this.approvalSessions.clear();
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new TurnMcpError("closed", "Local VM MCP turn is closed"));
-      }
-      this.pending.clear();
-      for (const timer of this.timers) clearTimeout(timer);
-      this.timers.clear();
-      this.buffer = "";
-      this.decoder.end();
+      let cleanupFailed = false;
+      const cleanup = (action: () => void): void => {
+        try {
+          action();
+        } catch {
+          cleanupFailed = true;
+        }
+      };
       try {
-        this.child.stdin.end();
-      } catch {
-        /* already closed */
+        cleanup(() => this.signal?.removeEventListener("abort", this.onAbort));
+        cleanup(() => this.child.stdout.off("data", this.onData));
+        cleanup(() => this.child.stdout.off("error", this.onStdoutError));
+        cleanup(() => this.child.off("error", this.onProcessError));
+        cleanup(() => this.child.off("exit", this.onProcessExit));
+        cleanup(() => this.child.stdin.off("error", this.onStdinError));
+        cleanup(() => this.child.stderr.off("error", this.onStderrError));
+        cleanup(() => this.child.stdout.pause());
+        cleanup(() => this.child.stderr.pause());
+        for (const session of this.approvalSessions) cleanup(() => session.close());
+        this.approvalSessions.clear();
+        for (const pending of this.pending.values()) {
+          cleanup(() => clearTimeout(pending.timer));
+          cleanup(() => pending.reject(new TurnMcpError("closed", "Local VM MCP turn is closed")));
+        }
+        this.pending.clear();
+        for (const timer of this.timers) cleanup(() => clearTimeout(timer));
+        this.timers.clear();
+        this.buffer = "";
+        cleanup(() => { this.decoder.end(); });
+        cleanup(() => this.child.stdin.end());
+        cleanup(() => killCliTree(this.child));
+        try {
+          await drainCliTrees();
+        } catch {
+          cleanupFailed = true;
+        }
+      } finally {
+        cleanup(() => process.off("exit", this.onHostExit));
+        if (this.turnLease) {
+          cleanup(() => { releaseLocalVmTurnLease(this.turnLease!.handle, this.turnLease!.binding); });
+        }
       }
-      killCliTree(this.child);
-      await drainCliTrees();
+      if (cleanupFailed) {
+        throw new TurnMcpError("closed", "Local VM MCP cleanup failed");
+      }
     })();
     return this.stopTask;
   }

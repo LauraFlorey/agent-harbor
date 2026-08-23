@@ -6,16 +6,45 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { StdioMcpEndpoint } from "./contracts.ts";
+import { LocalVmLease } from "./local-vm-lease.ts";
 import { localVmMcpEndpoint, type LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
 import {
   TurnMcpError,
   TurnScopedMcpClient,
+  type TurnMcpClientOptions,
   withTurnScopedMcpClient,
 } from "./mcp-client.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_MCP = join(SERVER_DIR, "testing", "fake-mcp-server.ts");
 const scratch: string[] = [];
+let leaseSequence = 0;
+
+function leasedOptions(options: Omit<TurnMcpClientOptions, "turnLease"> = {}): TurnMcpClientOptions {
+  const owner = new LocalVmLease(60_000);
+  const suffix = ++leaseSequence;
+  const binding = Object.freeze({
+    roomId: `mcp-room-${suffix}`,
+    turnId: `mcp-turn-${suffix}`,
+    sessionId: `mcp-session-${suffix}`,
+  });
+  return { ...options, turnLease: Object.freeze({ handle: owner.acquireTurn(binding), binding }) };
+}
+
+function connectLeasedMcp(
+  endpoint: LocalVmMcpEndpoint,
+  options: Omit<TurnMcpClientOptions, "turnLease"> = {},
+): Promise<TurnScopedMcpClient> {
+  return TurnScopedMcpClient.connect(endpoint, leasedOptions(options));
+}
+
+function withLeasedMcpClient<T>(
+  endpoint: LocalVmMcpEndpoint,
+  options: Omit<TurnMcpClientOptions, "turnLease">,
+  providerTurn: (client: TurnScopedMcpClient) => Promise<T>,
+): Promise<T> {
+  return withTurnScopedMcpClient(endpoint, leasedOptions(options), providerTurn);
+}
 
 interface FakeState {
   parentPid: number;
@@ -86,9 +115,9 @@ describe("turn-scoped Local VM MCP client", () => {
     process.env.OPENAI_API_KEY = "must-not-be-inherited";
     let client: TurnScopedMcpClient | undefined;
     try {
-      const names = await withTurnScopedMcpClient(endpoint, {}, async (turnClient) => {
+      const names = await withLeasedMcpClient(endpoint, {}, async (turnClient) => {
         client = turnClient;
-        expect(turnClient.lifecycleResources()).toEqual({ child: 1, listeners: 6, pending: 0, timers: 0 });
+        expect(turnClient.lifecycleResources()).toEqual({ child: 1, listeners: 8, pending: 0, timers: 0 });
         expect(Object.isFrozen(turnClient.tools[1]?.inputSchema)).toBe(true);
         expect(Object.isFrozen(turnClient.tools[1]?.inputSchema.properties)).toBe(true);
         return turnClient.tools.map((tool) => tool.name);
@@ -111,7 +140,7 @@ describe("turn-scoped Local VM MCP client", () => {
   it("cleans the process tree when the provider fails", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     let client: TurnScopedMcpClient | undefined;
-    await expect(withTurnScopedMcpClient(endpoint, {}, async (turnClient) => {
+    await expect(withLeasedMcpClient(endpoint, {}, async (turnClient) => {
       client = turnClient;
       throw new Error("provider failed");
     })).rejects.toThrow("provider failed");
@@ -127,25 +156,34 @@ describe("turn-scoped Local VM MCP client", () => {
     ["invalid-tool-name", "invalid_response"],
   ])("cleans the process tree after %s MCP failure", async (mode, code) => {
     const { dir, endpoint } = await fakeEndpoint(mode);
-    await expect(TurnScopedMcpClient.connect(endpoint)).rejects.toMatchObject({ code });
+    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code });
     await assertReleased(dir);
   });
 
   it("cleans the process tree and timer after initialization timeout", async () => {
     const { dir, endpoint } = await fakeEndpoint("hang");
-    await expect(TurnScopedMcpClient.connect(endpoint, { timeoutMs: 500 })).rejects.toMatchObject({ code: "timeout" });
+    await expect(connectLeasedMcp(endpoint, { timeoutMs: 500 })).rejects.toMatchObject({ code: "timeout" });
     await assertReleased(dir);
   });
 
+  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER, 300_001])(
+    "rejects unsafe MCP timeout %s before spawning",
+    async (timeoutMs) => {
+      const { dir, endpoint } = await fakeEndpoint();
+      await expect(connectLeasedMcp(endpoint, { timeoutMs })).rejects.toMatchObject({ code: "invalid_endpoint" });
+      expect(existsSync(join(dir, "state.json"))).toBe(false);
+    },
+  );
+
   it("bounds stdout while continuously draining and discarding stderr", async () => {
     const noisy = await fakeEndpoint("noisy-stderr");
-    await withTurnScopedMcpClient(noisy.endpoint, {}, async (client) => {
+    await withLeasedMcpClient(noisy.endpoint, {}, async (client) => {
       expect(client.tools).toHaveLength(2);
     });
     await assertReleased(noisy.dir);
 
     const oversized = await fakeEndpoint("oversized-stdout");
-    await expect(TurnScopedMcpClient.connect(oversized.endpoint)).rejects.toMatchObject({
+    await expect(connectLeasedMcp(oversized.endpoint)).rejects.toMatchObject({
       code: "invalid_response",
     });
     await assertReleased(oversized.dir);
@@ -153,7 +191,7 @@ describe("turn-scoped Local VM MCP client", () => {
 
   it("decodes JSON-RPC when a UTF-8 code point is split across chunks", async () => {
     const { dir, endpoint } = await fakeEndpoint("split-utf8");
-    await withTurnScopedMcpClient(endpoint, {}, async (client) => {
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
       expect(client.tools[0]?.description).toBe("Return the isolated 🖥️ state");
     });
     await assertReleased(dir);
@@ -163,7 +201,7 @@ describe("turn-scoped Local VM MCP client", () => {
     const { dir, endpoint } = await fakeEndpoint();
     const controller = new AbortController();
     let client: TurnScopedMcpClient | undefined;
-    await expect(withTurnScopedMcpClient(endpoint, { signal: controller.signal }, async (turnClient) => {
+    await expect(withLeasedMcpClient(endpoint, { signal: controller.signal }, async (turnClient) => {
       client = turnClient;
       controller.abort();
       return new Promise<never>(() => {});
@@ -176,8 +214,16 @@ describe("turn-scoped Local VM MCP client", () => {
     const { dir, endpoint } = await fakeEndpoint();
     const controller = new AbortController();
     controller.abort();
-    await expect(TurnScopedMcpClient.connect(endpoint, { signal: controller.signal })).rejects.toMatchObject({
+    await expect(connectLeasedMcp(endpoint, { signal: controller.signal })).rejects.toMatchObject({
       code: "aborted",
+    });
+    expect(existsSync(join(dir, "state.json"))).toBe(false);
+  });
+
+  it("refuses child creation without an application-owned Local VM lease", async () => {
+    const { dir, endpoint } = await fakeEndpoint();
+    await expect(TurnScopedMcpClient.connect(endpoint, {} as TurnMcpClientOptions)).rejects.toMatchObject({
+      code: "invalid_endpoint",
     });
     expect(existsSync(join(dir, "state.json"))).toBe(false);
   });
@@ -185,7 +231,7 @@ describe("turn-scoped Local VM MCP client", () => {
   it("cleans up when abort races asynchronous endpoint validation", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const controller = new AbortController();
-    const connecting = TurnScopedMcpClient.connect(endpoint, { signal: controller.signal });
+    const connecting = connectLeasedMcp(endpoint, { signal: controller.signal });
     controller.abort();
     await expect(connecting).rejects.toMatchObject({ code: "aborted" });
     if (existsSync(join(dir, "state.json"))) await assertReleased(dir);
@@ -194,7 +240,7 @@ describe("turn-scoped Local VM MCP client", () => {
   it("cleans the process tree after an explicit turn interruption", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     let client: TurnScopedMcpClient | undefined;
-    await expect(withTurnScopedMcpClient(endpoint, {}, async (turnClient) => {
+    await expect(withLeasedMcpClient(endpoint, {}, async (turnClient) => {
       client = turnClient;
       await Promise.all([turnClient.close(), turnClient.close()]);
       return new Promise<never>(() => {});
@@ -205,7 +251,7 @@ describe("turn-scoped Local VM MCP client", () => {
 
   it("reaps the helper when the MCP leader exits first", async () => {
     const { dir, endpoint } = await fakeEndpoint("exit-after-list");
-    await expect(withTurnScopedMcpClient(endpoint, {}, async () => new Promise<never>(() => {})))
+    await expect(withLeasedMcpClient(endpoint, {}, async () => new Promise<never>(() => {})))
       .rejects.toMatchObject({ code: "invalid_response" });
     await assertReleased(dir);
   });
@@ -217,7 +263,7 @@ describe("turn-scoped Local VM MCP client", () => {
       args: [...endpoint.args],
       env: { ...endpoint.env },
     };
-    await expect(TurnScopedMcpClient.connect(unbranded as LocalVmMcpEndpoint)).rejects.toMatchObject({
+    await expect(connectLeasedMcp(unbranded as LocalVmMcpEndpoint)).rejects.toMatchObject({
       code: "invalid_endpoint",
     });
     expect(Object.isFrozen(endpoint)).toBe(true);
@@ -228,7 +274,7 @@ describe("turn-scoped Local VM MCP client", () => {
     const link = join(SERVER_DIR, "testing", `fake-mcp-link-${process.pid}.ts`);
     await symlink(FAKE_MCP, link);
     try {
-      await expect(TurnScopedMcpClient.connect(localVmMcpEndpoint({
+      await expect(connectLeasedMcp(localVmMcpEndpoint({
         command: process.execPath,
         args: [link],
         env: {},
@@ -237,17 +283,17 @@ describe("turn-scoped Local VM MCP client", () => {
       await rm(link, { force: true });
     }
 
-    await expect(TurnScopedMcpClient.connect(localVmMcpEndpoint({
+    await expect(connectLeasedMcp(localVmMcpEndpoint({
       command: process.execPath,
       args: [FAKE_MCP, "--api-key=turn-only-secret"],
       env: { MCP_TEST_SECRET: "turn-only-secret" },
     }))).rejects.toMatchObject({ code: "invalid_endpoint" });
-    await expect(TurnScopedMcpClient.connect(localVmMcpEndpoint({
+    await expect(connectLeasedMcp(localVmMcpEndpoint({
       command: process.execPath,
       args: [process.execPath],
       env: {},
     }))).rejects.toMatchObject({ code: "invalid_endpoint" });
-    await expect(TurnScopedMcpClient.connect(localVmMcpEndpoint({
+    await expect(connectLeasedMcp(localVmMcpEndpoint({
       command: process.execPath,
       args: [FAKE_MCP],
       env: { NODE_OPTIONS: `--require=${FAKE_MCP}` },
@@ -266,7 +312,7 @@ describe("turn-scoped Local VM MCP client", () => {
       args: [FAKE_MCP, ...args],
       env: { FAKE_MCP_STATE_DIR: dir },
     });
-    await withTurnScopedMcpClient(endpoint, {}, async () => {});
+    await withLeasedMcpClient(endpoint, {}, async () => {});
     const state = await assertReleased(dir);
     expect(state.argv).toEqual(args);
     expect(existsSync(injected)).toBe(false);
@@ -274,13 +320,13 @@ describe("turn-scoped Local VM MCP client", () => {
 
   it("cleans partial startup when the MCP child exits before initialization", async () => {
     const { dir, endpoint } = await fakeEndpoint("exit-before-initialize");
-    await expect(TurnScopedMcpClient.connect(endpoint)).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code: "invalid_response" });
     await assertReleased(dir);
   });
 
   it("uses stable, redacted failure messages", async () => {
     const { endpoint } = await fakeEndpoint("rpc-error");
-    const error = await TurnScopedMcpClient.connect(endpoint).catch((caught) => caught);
+    const error = await connectLeasedMcp(endpoint).catch((caught) => caught);
     expect(error).toBeInstanceOf(TurnMcpError);
     expect(String(error)).not.toContain("fixture detail");
     expect(String(error)).not.toContain("turn-only-secret");

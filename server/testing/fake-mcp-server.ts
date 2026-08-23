@@ -10,7 +10,10 @@ if (!stateDir) process.exit(2);
 const mode = process.env.FAKE_MCP_MODE ?? "normal";
 const marker = join(stateDir, "turn-resource");
 const statePath = join(stateDir, "state.json");
-const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+const helperSource = mode === "stubborn-child"
+  ? "process.on('SIGTERM',()=>{});setInterval(() => {}, 1000)"
+  : "setInterval(() => {}, 1000)";
+const helper = spawn(process.execPath, ["-e", helperSource], {
   stdio: "ignore",
 });
 

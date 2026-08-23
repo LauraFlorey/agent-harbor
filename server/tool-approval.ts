@@ -8,6 +8,15 @@ import type {
   ProviderToolDefinition,
   ProviderToolResult,
 } from "./contracts.ts";
+import {
+  approvalDeadlineNs,
+  beginToolCall,
+  finishToolCall,
+  recordApprovalOutcome,
+  toolArgumentByteLimit,
+  type ApplicationToolTurnControl,
+  type ToolCallBudget,
+} from "./tool-turn-control.ts";
 
 const DESTINATION = "local-vm" as const;
 const HMAC_DOMAIN = "agent-harbor/local-vm-tool-approval/v1";
@@ -157,6 +166,9 @@ export interface ToolApprovalSessionOptions {
   approval?: ApplicationToolApprovalChannel;
   approvalTimeoutMs?: number;
   signal?: AbortSignal;
+  /** Application-owned operational limits. Provider output never receives or
+   * constructs this capability; omitting it preserves the Story 4 gate. */
+  turnControl?: ApplicationToolTurnControl;
 }
 
 export interface ToolApprovalLifecycleResources {
@@ -238,11 +250,12 @@ function assertBoundedIdentifier(value: unknown, label: string): asserts value i
 interface CloneBudget {
   bytes: number;
   nodes: number;
+  maxBytes: number;
 }
 
 function addBudget(budget: CloneBudget, encoded: string): void {
   budget.bytes += byteLength(encoded);
-  if (budget.bytes > MAX_ARGUMENT_BYTES) {
+  if (budget.bytes > budget.maxBytes) {
     throw new ToolApprovalError("invalid_arguments", "Tool arguments exceed the safety limit");
   }
 }
@@ -381,13 +394,17 @@ function untrustedCallFields(untrusted: UntrustedProviderToolCall): UntrustedCal
   }
 }
 
-function normalizeCall(untrusted: UntrustedProviderToolCall, key: Buffer): NormalizedCall {
+function normalizeCall(
+  untrusted: UntrustedProviderToolCall,
+  key: Buffer,
+  maxArgumentBytes = MAX_ARGUMENT_BYTES,
+): NormalizedCall {
   const fields = untrustedCallFields(untrusted);
   assertBoundedIdentifier(fields.id, "Tool call ID");
   assertBoundedIdentifier(fields.name, "Tool name");
   let parsed = fields.arguments;
   if (typeof parsed === "string") {
-    if (byteLength(parsed) > MAX_ARGUMENT_BYTES) {
+    if (byteLength(parsed) > maxArgumentBytes) {
       throw new ToolApprovalError("invalid_arguments", "Tool arguments exceed the safety limit");
     }
     try {
@@ -401,13 +418,13 @@ function normalizeCall(untrusted: UntrustedProviderToolCall, key: Buffer): Norma
   }
   let cloned: Record<string, unknown>;
   try {
-    cloned = cloneJson(parsed, { bytes: 0, nodes: 0 }, 0, new WeakSet()) as Record<string, unknown>;
+    cloned = cloneJson(parsed, { bytes: 0, nodes: 0, maxBytes: maxArgumentBytes }, 0, new WeakSet()) as Record<string, unknown>;
   } catch (error) {
     if (error instanceof ToolApprovalError) throw error;
     throw new ToolApprovalError("invalid_arguments", "Tool arguments are invalid");
   }
   const canonicalArguments = stableJson(cloned);
-  if (byteLength(canonicalArguments) > MAX_ARGUMENT_BYTES) {
+  if (byteLength(canonicalArguments) > maxArgumentBytes) {
     throw new ToolApprovalError("invalid_arguments", "Tool arguments exceed the safety limit");
   }
   return {
@@ -491,12 +508,12 @@ function frozenChallenge(value: ToolApprovalChallenge): ToolApprovalChallenge {
 
 export function createApprovedToolRequests(
   discoveredTools: readonly ProviderToolDefinition[],
-  executeTool: (call: ProviderToolCall) => Promise<ProviderToolResult>,
+  executeTool: (call: ProviderToolCall, budget?: ToolCallBudget) => Promise<ProviderToolResult>,
   options: ToolApprovalSessionOptions,
 ): ApprovedToolRequests {
   assertBoundedIdentifier(options.turnId, "Turn ID");
   const timeoutMs = options.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_APPROVAL_TIMEOUT_MS) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_APPROVAL_TIMEOUT_MS) {
     throw new ToolApprovalError("invalid_call", "Approval timeout is outside the safety limit");
   }
   const channelState = options.approval ? applicationChannels.get(options.approval) : undefined;
@@ -604,6 +621,7 @@ export function createApprovedToolRequests(
   const awaitApproval = (
     normalized: NormalizedCall,
     trusted: TrustedTool,
+    budget?: ToolCallBudget,
   ): Promise<ApprovalResult> => {
     if (closed) {
       return Promise.resolve({ behavior: "deny", reason: options.signal?.aborted ? "aborted" : "closed", source: "system" });
@@ -614,6 +632,13 @@ export function createApprovedToolRequests(
     if (pending.size >= MAX_PENDING_APPROVALS) {
       throw new ToolApprovalError("too_many_calls", "Too many tool approvals are pending");
     }
+    const deadlineNs = options.turnControl && budget
+      ? approvalDeadlineNs(options.turnControl, budget, timeoutMs)
+      : process.hrtime.bigint() + BigInt(Math.ceil(timeoutMs * 1_000_000));
+    const displayRemainingMs = Math.max(
+      1,
+      Number((deadlineNs - process.hrtime.bigint() + 999_999n) / 1_000_000n),
+    );
     const unsigned = {
       requestId: freshRequestId(),
       turnId: options.turnId,
@@ -624,14 +649,12 @@ export function createApprovedToolRequests(
       argumentsHash: normalized.argumentsHash,
       toolDefinitionHash: keyedDigest(bindingKey, "tool-definition", trusted.canonicalDefinition),
       attemptId: randomUUID(),
-      expiresAt: Date.now() + Math.ceil(timeoutMs),
+      expiresAt: Date.now() + displayRemainingMs,
     } as const;
     const challenge = frozenChallenge({
       ...unsigned,
       binding: challengeBinding(bindingKey, unsigned),
     });
-    const deadlineNs = process.hrtime.bigint() + BigInt(Math.ceil(timeoutMs * 1_000_000));
-
     return new Promise((finish) => {
       let request: PendingApproval;
       const expire = (): void => {
@@ -646,7 +669,7 @@ export function createApprovedToolRequests(
         }
         settle(challenge.requestId, { behavior: "deny", reason: "timeout", source: "system" });
       };
-      const timer = setTimeout(expire, timeoutMs);
+      const timer = setTimeout(expire, displayRemainingMs);
       timer.unref?.();
       timers.add(timer);
       request = { challenge, deadlineNs, timer, finish };
@@ -694,7 +717,11 @@ export function createApprovedToolRequests(
   };
 
   const executeOne = async (untrusted: UntrustedProviderToolCall): Promise<ProviderToolResult> => {
-    const normalized = normalizeCall(untrusted, bindingKey);
+    const normalized = normalizeCall(
+      untrusted,
+      bindingKey,
+      options.turnControl ? toolArgumentByteLimit(options.turnControl) : MAX_ARGUMENT_BYTES,
+    );
     const identity = normalized.callIdHash;
     const fingerprint = keyedDigest(bindingKey, "call-fingerprint", normalized.call.name, normalized.argumentsHash);
     const previous = seenCalls.get(identity);
@@ -723,35 +750,68 @@ export function createApprovedToolRequests(
       throw new ToolApprovalError("schema_rejected", "Tool arguments do not match the discovered schema");
     }
 
-    const approval = await awaitApproval(normalized, trusted);
-    if (approval.behavior !== "allow") {
-      const code = approval.reason === "timeout"
-        ? "approval_timeout"
-        : approval.reason === "unavailable"
-          ? "approval_unavailable"
-          : approval.reason === "aborted"
-            ? "aborted"
-            : approval.reason === "closed"
-              ? "closed"
-              : "approval_denied";
-      throw new ToolApprovalError(code, "Tool execution was not approved");
-    }
-    if (closed || options.signal?.aborted) {
-      throw new ToolApprovalError(options.signal?.aborted ? "aborted" : "closed", "Tool execution turn is closed");
-    }
-    if (approval.deadlineNs === undefined || process.hrtime.bigint() >= approval.deadlineNs) {
-      throw new ToolApprovalError("approval_timeout", "Tool approval expired before execution began");
-    }
+    const budget = options.turnControl
+      ? beginToolCall(options.turnControl, normalized.call.name, normalized.canonicalArguments)
+      : undefined;
+    let finalOutcome: "success" | "denied" | "timeout" | "aborted" | "error" = "error";
     try {
-      return await executeTool(normalized.call);
+      const approval = await awaitApproval(normalized, trusted, budget);
+      if (options.turnControl && budget) {
+        recordApprovalOutcome(
+          options.turnControl,
+          budget,
+          approval.behavior === "allow"
+            ? "allow"
+            : approval.reason === "timeout"
+              ? "timeout"
+              : approval.reason === "aborted" || approval.reason === "closed"
+                ? "aborted"
+                : "deny",
+        );
+      }
+      if (approval.behavior !== "allow") {
+        finalOutcome = approval.reason === "timeout"
+          ? "timeout"
+          : approval.reason === "aborted" || approval.reason === "closed"
+            ? "aborted"
+            : "denied";
+        const code = approval.reason === "timeout"
+          ? "approval_timeout"
+          : approval.reason === "unavailable"
+            ? "approval_unavailable"
+            : approval.reason === "aborted"
+              ? "aborted"
+              : approval.reason === "closed"
+                ? "closed"
+                : "approval_denied";
+        throw new ToolApprovalError(code, "Tool execution was not approved");
+      }
+      if (closed || options.signal?.aborted) {
+        finalOutcome = "aborted";
+        throw new ToolApprovalError(options.signal?.aborted ? "aborted" : "closed", "Tool execution turn is closed");
+      }
+      if (approval.deadlineNs === undefined || process.hrtime.bigint() >= approval.deadlineNs) {
+        finalOutcome = "timeout";
+        throw new ToolApprovalError("approval_timeout", "Tool approval expired before execution began");
+      }
+      const result = await executeTool(normalized.call, budget);
+      finalOutcome = "success";
+      return result;
     } catch (error) {
       if (options.signal?.aborted) {
+        finalOutcome = "aborted";
         throw new ToolApprovalError("aborted", "Tool execution turn is closed");
       }
+      if (error instanceof ToolApprovalError) throw error;
       if (error && typeof error === "object" && "code" in error && error.code === "closed") {
+        finalOutcome = "aborted";
         throw new ToolApprovalError("closed", "Tool execution turn is closed");
       }
       throw new ToolApprovalError("mcp_failure", "Approved Local VM tool execution failed");
+    } finally {
+      if (options.turnControl && budget) {
+        finishToolCall(options.turnControl, budget, finalOutcome, finalOutcome === "success");
+      }
     }
   };
 
