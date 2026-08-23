@@ -13,7 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { EffortLevel } from "../../server/contracts.ts";
+import type { ComputerUseMode, EffortLevel } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
@@ -204,7 +204,7 @@ export interface InstanceInfo {
   capabilities?: {
     contextMode?: "resume-cursor" | "transcript-replay" | "provider-managed";
     executionMode?: "local-process" | "remote-computer";
-    computerUse?: "none" | "mcp" | "native";
+    computerUse?: ComputerUseMode;
     agentsMcp?: boolean;
     effortLevels?: readonly EffortLevel[];
   };

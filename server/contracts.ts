@@ -150,6 +150,33 @@ export interface TurnStartResult {
   turnId: TurnId;
 }
 
+/** The harness-normalized tool surface used by server-owned tool loops.
+ * Provider transports translate these values to and from their native wire
+ * format; MCP discovery/execution remains a harness responsibility. */
+export interface ProviderToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export type ProviderToolResultContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+export interface ProviderToolResult {
+  callId: string;
+  content: ProviderToolResultContent[];
+  isError: boolean;
+}
+
+export type ComputerUseMode = "none" | "mcp" | "native" | "server";
+
 export interface ProviderAdapter {
   readonly provider: DriverKind;
   readonly capabilities: {
@@ -162,10 +189,12 @@ export interface ProviderAdapter {
      * are eligible for detached Cloud VM routines; local-process providers
      * may receive a host working directory. */
     executionMode: "local-process" | "remote-computer";
-    /** How computer control reaches the model. `mcp` providers can mount a
-     * selected host, local-VM, or cloud-computer MCP endpoint. `native`
-     * providers already execute inside their remote computer. */
-    computerUse: "none" | "mcp" | "native";
+    /** How computer control reaches the model. `mcp` providers mount an MCP
+     * endpoint themselves; `native` providers execute inside their remote
+     * computer; `server` providers use a harness-owned tool loop. The server
+     * mode is restricted to the isolated Local VM until later destinations
+     * receive their own reviewed routing and safety work. */
+    computerUse: ComputerUseMode;
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */
@@ -189,6 +218,18 @@ export interface ProviderAdapter {
   hasSession(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
+}
+
+/** Local VM eligibility is behavioral, never inferred from a provider name.
+ * Server-driven API engines are eligible without claiming that they mount
+ * MCP themselves; host and cloud routing remain deliberately separate. */
+export function providerSupportsLocalVm(
+  capabilities: Pick<ProviderAdapter["capabilities"], "computerUse" | "executionMode">,
+): boolean {
+  return (
+    capabilities.executionMode === "local-process" &&
+    (capabilities.computerUse === "mcp" || capabilities.computerUse === "server")
+  );
 }
 
 // ── provider snapshot (upstream ServerProviderShape, reduced) ────────────

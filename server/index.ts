@@ -24,7 +24,7 @@ import {
 import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
-import { isEffortLevel, type RuntimeEvent } from "./contracts.ts";
+import { isEffortLevel, providerSupportsLocalVm, type RuntimeEvent } from "./contracts.ts";
 import { drainCliTrees } from "./procs.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
@@ -836,14 +836,15 @@ async function startTurn(
       const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
       const { computerUse, executionMode } = instance.adapter.capabilities;
       const mountsComputerMcp = computerUse === "mcp";
-      const mountsCloudComputer = computerUse !== "none";
+      const canUseLocalVm = providerSupportsLocalVm(instance.adapter.capabilities);
+      const mountsCloudComputer = computerUse === "mcp" || computerUse === "native";
       let previewBoxId: string | null = null;
       let computerKind: "box" | "vm" | "local" | null = null;
 
       // Explicit destinations are strict. In particular, Local VM must never
       // fall through to host CUA and accidentally click on the user's Mac.
       if (wants === "vm") {
-        if (!mountsComputerMcp || executionMode !== "local-process") {
+        if (!canUseLocalVm) {
           throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
         }
         if (localVmLifecycleBusy) {

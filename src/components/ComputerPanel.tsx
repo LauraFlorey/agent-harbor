@@ -90,7 +90,8 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
   );
   const vmSupported = Boolean(
     selectedInstance?.snapshot.state === "available" &&
-      selectedInstance.capabilities?.computerUse === "mcp" &&
+      (selectedInstance.capabilities?.computerUse === "mcp" ||
+        selectedInstance.capabilities?.computerUse === "server") &&
       selectedInstance.capabilities?.executionMode === "local-process",
   );
   const computerToolSupported = selectedInstance?.capabilities?.computerUse === "mcp";

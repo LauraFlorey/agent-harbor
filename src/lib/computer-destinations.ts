@@ -1,7 +1,9 @@
+import type { ComputerUseMode } from "../../server/contracts.ts";
+
 export type ComputerDestination = "cloud" | "vm" | "local" | "off";
 
 export interface ComputerRoutingCapabilities {
-  computerUse?: "none" | "mcp" | "native";
+  computerUse?: ComputerUseMode;
   executionMode?: "local-process" | "remote-computer";
 }
 
@@ -11,7 +13,10 @@ export function supportsComputerDestination(
 ): boolean {
   if (destination === "off") return true;
   if (destination === "vm") {
-    return capabilities?.computerUse === "mcp" && capabilities.executionMode === "local-process";
+    return (
+      capabilities?.executionMode === "local-process" &&
+      (capabilities.computerUse === "mcp" || capabilities.computerUse === "server")
+    );
   }
   if (destination === "local") return capabilities?.computerUse === "mcp";
   return capabilities?.computerUse === "mcp" || capabilities?.computerUse === "native";
