@@ -90,7 +90,9 @@ export function killCliTree(child: ChildProcess): void {
 
   if (process.platform === "win32") {
     trackedTreeStop(pid, () => new Promise<void>((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err) => {
+      const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR ?? "C:\\Windows";
+      const taskkill = join(systemRoot, "System32", "taskkill.exe");
+      execFile(taskkill, ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err) => {
         if (err) {
           try {
             // taskkill is unavailable or the tree lookup failed. At least stop

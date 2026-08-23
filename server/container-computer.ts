@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 import { buildAgentEnvironment } from "./agent-environment.ts";
 import { augmentedPath } from "./env-path.ts";
 import { DATA_DIR } from "./config.ts";
+import { localVmMcpEndpoint, type LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
 
 const run = promisify(execFile);
 const SCREENSHOT_STATUS_TTL_MS = 10_000;
@@ -776,16 +777,12 @@ const containerMcpPath = (() => {
 /** Spawn contract handed directly to agent runtimes. The tiny host wrapper
  * only preserves stdio through the container CLI; Cua Driver owns the MCP
  * protocol and every computer tool. */
-export function containerComputerMcp(runtime: Runtime): {
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-} {
-  return {
+export function containerComputerMcp(runtime: Runtime): LocalVmMcpEndpoint {
+  return localVmMcpEndpoint({
     command: process.execPath,
     args: [containerMcpPath, runtime, CONTAINER, CUA_SOCKET],
     env: { ELECTRON_RUN_AS_NODE: "1" },
-  };
+  });
 }
 
 /** Commands shown as a transparent fallback. Normal setup builds the pinned

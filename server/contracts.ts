@@ -63,6 +63,14 @@ export interface InstanceConfig {
 
 export type InstanceConfigMap = Record<InstanceId, InstanceConfig>;
 
+/** A stdio MCP subprocess descriptor. Credentials and other private values
+ * belong in `env`; callers must never encode them into `args`. */
+export interface StdioMcpEndpoint {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
 // ── canonical runtime events ───────────────────────────────────────────
 // Subset of upstream's 49-member ProviderRuntimeEvent union — the ~12 types
 // the recipe says to start with, sharing one base. `raw` carries the
@@ -134,11 +142,11 @@ export interface SendTurnInput {
     /** Cloud computer, reached through Agent Harbor's REST-to-MCP adapter. */
     computer?: { kind?: "box"; boxId: string; token: string };
     /** Direct stdio connection to a Cua Driver MCP server (host or sandbox). */
-    localComputer?: { command: string; args: string[]; env: Record<string, string> };
+    localComputer?: StdioMcpEndpoint;
     /** Peer-agent comms: an MCP proxy (list_bots / ask_bot) that routes back
      * through the harness so this bot can message other bots. The harness
      * owns turns, permissions, and recursion limits; the proxy only forwards. */
-    agents?: { command: string; args: string[]; env: Record<string, string> };
+    agents?: StdioMcpEndpoint;
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
