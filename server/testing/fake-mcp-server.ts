@@ -24,6 +24,7 @@ const state = {
   inheritedProviderSecret: Boolean(process.env.OPENAI_API_KEY),
   runtimeOptionsInjected: Boolean(process.env.NODE_OPTIONS),
   methods: [] as string[],
+  toolCallNames: [] as string[],
 };
 const writeState = (): void => writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
 writeState();
@@ -46,6 +47,7 @@ const send = (message: unknown): void => {
 };
 
 let input = "";
+const pairedToolCalls: Array<{ id?: number; name: string }> = [];
 process.stdin.on("data", (chunk) => {
   input += String(chunk);
   for (;;) {
@@ -54,7 +56,7 @@ process.stdin.on("data", (chunk) => {
     const line = input.slice(0, newline).trim();
     input = input.slice(newline + 1);
     if (!line) continue;
-    const request = JSON.parse(line) as { id?: number; method?: string };
+    const request = JSON.parse(line) as { id?: number; method?: string; params?: unknown };
     if (request.method) {
       state.methods.push(request.method);
       writeState();
@@ -108,6 +110,61 @@ process.stdin.on("data", (chunk) => {
         });
         continue;
       }
+      if (mode === "external-ref-schema" || mode === "regex-schema" || mode === "format-schema" || mode === "unsupported-schema") {
+        const inputSchema = mode === "external-ref-schema"
+          ? { $ref: "https://untrusted.invalid/schema.json" }
+          : mode === "regex-schema"
+            ? { type: "object", properties: { value: { type: "string", pattern: "^(a+)+$" } } }
+            : mode === "format-schema"
+              ? { type: "object", properties: { value: { type: "string", format: "custom-private-format" } } }
+              : { type: "object", "x-unsupported-keyword": true };
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: { tools: [{ name: "unsafe_schema", inputSchema }] },
+        });
+        continue;
+      }
+      if (mode === "too-many-tools") {
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            tools: Array.from({ length: 129 }, (_, index) => ({
+              name: `tool_${index}`,
+              inputSchema: { type: "object", additionalProperties: false },
+            })),
+          },
+        });
+        continue;
+      }
+      if (mode === "too-deep-schema") {
+        let inputSchema: Record<string, unknown> = { type: "string" };
+        for (let depth = 0; depth < 70; depth += 1) inputSchema = { type: "array", items: inputSchema };
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: { tools: [{ name: "deep_schema", inputSchema }] },
+        });
+        continue;
+      }
+      if (mode === "too-wide-schema" || mode === "oversized-schema") {
+        const inputSchema = mode === "too-wide-schema"
+          ? {
+              type: "object",
+              properties: Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => [
+                `field_${index}`,
+                { type: "string" },
+              ])),
+            }
+          : { type: "object", description: "x".repeat(270 * 1024) };
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: { tools: [{ name: "resource_schema", inputSchema }] },
+        });
+        continue;
+      }
       const toolList = {
         jsonrpc: "2.0",
         id: request.id,
@@ -131,6 +188,79 @@ process.stdin.on("data", (chunk) => {
                 additionalProperties: false,
               },
             },
+            ...(mode === "approval-tools" ? [
+              {
+                name: "submit_form",
+                description: "Submit fields inside the isolated desktop",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    password: { type: "string" },
+                    note: { type: "string" },
+                  },
+                  required: ["password", "note"],
+                  additionalProperties: false,
+                },
+              },
+              {
+                name: "structured_input",
+                description: "Handle structured test data inside the isolated desktop",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    payload: {
+                      type: "object",
+                      properties: {
+                        tags: { type: "array", items: { type: "string" } },
+                        enabled: { type: "boolean" },
+                      },
+                      required: ["tags", "enabled"],
+                      additionalProperties: false,
+                    },
+                  },
+                  required: ["payload"],
+                  additionalProperties: false,
+                },
+              },
+              {
+                name: "json_shapes",
+                description: "Handle bounded JSON shapes inside the isolated desktop",
+                inputSchema: {
+                  type: "object",
+                  properties: { value: true },
+                  required: ["value"],
+                  additionalProperties: false,
+                },
+              },
+              {
+                name: "defaulted_input",
+                description: "Prove schema defaults are not applied",
+                inputSchema: {
+                  type: "object",
+                  properties: { mode: { type: "string", default: "safe" } },
+                  required: ["mode"],
+                  additionalProperties: false,
+                },
+              },
+              {
+                name: "recursive_node",
+                description: "Validate a bounded recursive object",
+                inputSchema: {
+                  $defs: {
+                    node: {
+                      type: "object",
+                      properties: {
+                        value: { type: "string" },
+                        child: { $ref: "#/$defs/node" },
+                      },
+                      required: ["value"],
+                      additionalProperties: false,
+                    },
+                  },
+                  $ref: "#/$defs/node",
+                },
+              },
+            ] : []),
           ],
         },
       };
@@ -143,6 +273,50 @@ process.stdin.on("data", (chunk) => {
         send(toolList);
       }
       if (mode === "exit-after-list") setTimeout(() => process.exit(7), 10);
+      continue;
+    }
+    if (request.method === "tools/call") {
+      if (mode === "tool-rpc-error") {
+        send({ jsonrpc: "2.0", id: request.id, error: { code: -32001, message: "private fixture detail" } });
+        continue;
+      }
+      if (mode === "tool-hang") continue;
+      const params = request.params && typeof request.params === "object"
+        ? request.params as { name?: unknown; arguments?: unknown }
+        : {};
+      if (typeof params.name !== "string") {
+        send({ jsonrpc: "2.0", id: request.id, error: { code: -32602, message: "invalid params" } });
+        continue;
+      }
+      state.toolCallNames.push(params.name);
+      writeState();
+      if (mode === "paired-tool-failure") {
+        pairedToolCalls.push({ id: request.id, name: params.name });
+        if (pairedToolCalls.length === 2) {
+          const [failed, sibling] = pairedToolCalls;
+          process.stdout.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: failed?.id, error: { code: -32002, message: "paired private detail" } })}\n` +
+            `${JSON.stringify({ jsonrpc: "2.0", id: sibling?.id, result: { content: [{ type: "text", text: `executed:${sibling?.name}` }], isError: false } })}\n`,
+          );
+        }
+        continue;
+      }
+      if (mode === "oversized-tool-result") {
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: { content: [{ type: "text", text: "x".repeat(2 * 1024 * 1024) }], isError: false },
+        });
+        continue;
+      }
+      const text = params.name === "click" && params.arguments && typeof params.arguments === "object"
+        ? `clicked:${String((params.arguments as { x?: unknown }).x)},${String((params.arguments as { y?: unknown }).y)}`
+        : `executed:${params.name}`;
+      send({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: { content: [{ type: "text", text }], isError: false },
+      });
     }
   }
 });

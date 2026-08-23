@@ -7,14 +7,31 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildAgentEnvironment } from "./agent-environment.ts";
-import type { ProviderToolDefinition } from "./contracts.ts";
+import type {
+  ProviderToolCall,
+  ProviderToolDefinition,
+  ProviderToolResult,
+  ProviderToolResultContent,
+} from "./contracts.ts";
 import { isLocalVmMcpEndpoint, type LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
 import { drainCliTrees, killCliTree } from "./procs.ts";
+import {
+  createApprovedToolRequests,
+  type ApprovedToolRequests,
+  ToolApprovalError,
+  type ToolApprovalSessionOptions,
+} from "./tool-approval.ts";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
 const MAX_SCHEMA_DEPTH = 64;
+const MAX_SCHEMA_NODES = 4_096;
+const MAX_SCHEMA_VALUE_NODES = 16_384;
+const MAX_SCHEMA_BYTES = 256 * 1024;
+const MAX_AGGREGATE_SCHEMA_BYTES = 1024 * 1024;
+const MAX_TOOL_COUNT = 128;
+const MAX_TOOL_RESULT_ITEMS = 1_024;
 const MAX_ENDPOINT_DESCRIPTOR_BYTES = 12 * 1024;
 const SERVER_ROOT = dirname(fileURLToPath(import.meta.url));
 const GUARDIAN_PATH = (() => {
@@ -58,6 +75,7 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: TurnMcpError) => void;
   timer: ReturnType<typeof setTimeout>;
+  validate?: (value: unknown) => unknown;
 }
 
 interface JsonRpcMessage {
@@ -176,41 +194,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const SCHEMA_TYPES = new Set(["array", "boolean", "integer", "null", "number", "object", "string"]);
 
-function validateSchemaValue(value: unknown, depth = 0): boolean {
-  if (depth > MAX_SCHEMA_DEPTH) return false;
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every((item) => validateSchemaValue(item, depth + 1));
-  if (!isRecord(value)) return false;
-  return Object.values(value).every((item) => validateSchemaValue(item, depth + 1));
+interface SchemaBudget {
+  nodes: number;
 }
 
-function validateSchemaNode(value: unknown, depth = 0): boolean {
+function validateSchemaValue(value: unknown, depth: number, budget: SchemaBudget): boolean {
+  budget.nodes += 1;
+  if (depth > MAX_SCHEMA_DEPTH || budget.nodes > MAX_SCHEMA_VALUE_NODES) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => validateSchemaValue(item, depth + 1, budget));
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((item) => validateSchemaValue(item, depth + 1, budget));
+}
+
+function validateSchemaNode(value: unknown, depth: number, budget: SchemaBudget): boolean {
+  budget.nodes += 1;
+  if (depth > MAX_SCHEMA_DEPTH || budget.nodes > MAX_SCHEMA_NODES) return false;
   if (typeof value === "boolean") return true;
-  if (!isRecord(value) || depth > MAX_SCHEMA_DEPTH || !validateSchemaValue(value, depth)) return false;
+  if (!isRecord(value)) return false;
+  if (value.pattern !== undefined || value.patternProperties !== undefined || value.format !== undefined) return false;
+  for (const ref of [value.$ref, value.$dynamicRef]) {
+    if (ref !== undefined && (typeof ref !== "string" || !ref.startsWith("#"))) return false;
+  }
   const type = value.type;
   if (type !== undefined) {
     const types = Array.isArray(type) ? type : [type];
     if (!types.length || !types.every((item) => typeof item === "string" && SCHEMA_TYPES.has(item))) return false;
   }
-  for (const key of ["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"] as const) {
+  for (const key of ["properties", "$defs", "definitions", "dependentSchemas"] as const) {
     const schemas = value[key];
     if (schemas !== undefined && (
-      !isRecord(schemas) || !Object.values(schemas).every((schema) => validateSchemaNode(schema, depth + 1))
+      !isRecord(schemas) || !Object.values(schemas).every((schema) => validateSchemaNode(schema, depth + 1, budget))
     )) return false;
   }
   for (const key of ["allOf", "anyOf", "oneOf", "prefixItems"] as const) {
     const schemas = value[key];
     if (schemas !== undefined && (
-      !Array.isArray(schemas) || !schemas.every((schema) => validateSchemaNode(schema, depth + 1))
+      !Array.isArray(schemas) || !schemas.every((schema) => validateSchemaNode(schema, depth + 1, budget))
     )) return false;
   }
   if (value.items !== undefined) {
     const items = value.items;
     if (
       Array.isArray(items)
-        ? !items.every((schema) => validateSchemaNode(schema, depth + 1))
-        : !validateSchemaNode(items, depth + 1)
+        ? !items.every((schema) => validateSchemaNode(schema, depth + 1, budget))
+        : !validateSchemaNode(items, depth + 1, budget)
     ) return false;
   }
   for (const key of [
@@ -224,7 +253,7 @@ function validateSchemaNode(value: unknown, depth = 0): boolean {
     "unevaluatedItems",
     "unevaluatedProperties",
   ] as const) {
-    if (value[key] !== undefined && !validateSchemaNode(value[key], depth + 1)) return false;
+    if (value[key] !== undefined && !validateSchemaNode(value[key], depth + 1, budget)) return false;
   }
   if (
     value.required !== undefined &&
@@ -235,8 +264,25 @@ function validateSchemaNode(value: unknown, depth = 0): boolean {
   return true;
 }
 
+function schemaUsesUnsupportedExecutionFeature(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(schemaUsesUnsupportedExecutionFeature);
+  if (!isRecord(value)) return false;
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "pattern" || key === "patternProperties" || key === "format") return true;
+    if (
+      (key === "$ref" || key === "$dynamicRef") &&
+      (typeof nested !== "string" || !nested.startsWith("#"))
+    ) return true;
+    if (schemaUsesUnsupportedExecutionFeature(nested)) return true;
+  }
+  return false;
+}
+
 function validateInputSchema(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && validateSchemaNode(value);
+  return isRecord(value) &&
+    validateSchemaValue(value, 0, { nodes: 0 }) &&
+    !schemaUsesUnsupportedExecutionFeature(value) &&
+    validateSchemaNode(value, 0, { nodes: 0 });
 }
 
 function freezeJson<T>(value: T): T {
@@ -252,10 +298,11 @@ function freezeJson<T>(value: T): T {
 }
 
 function validateTools(value: unknown): ProviderToolDefinition[] {
-  if (!isRecord(value) || !Array.isArray(value.tools)) {
+  if (!isRecord(value) || !Array.isArray(value.tools) || value.tools.length > MAX_TOOL_COUNT) {
     throw new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool list");
   }
   const names = new Set<string>();
+  let aggregateSchemaBytes = 0;
   return value.tools.map((tool) => {
     if (
       !isRecord(tool) ||
@@ -267,6 +314,11 @@ function validateTools(value: unknown): ProviderToolDefinition[] {
     ) {
       throw new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool definition");
     }
+    const schemaBytes = Buffer.byteLength(JSON.stringify(tool.inputSchema));
+    aggregateSchemaBytes += schemaBytes;
+    if (schemaBytes > MAX_SCHEMA_BYTES || aggregateSchemaBytes > MAX_AGGREGATE_SCHEMA_BYTES) {
+      throw new TurnMcpError("invalid_response", "Local VM MCP tool schemas exceed the safety limit");
+    }
     names.add(tool.name);
     return {
       name: tool.name,
@@ -276,9 +328,50 @@ function validateTools(value: unknown): ProviderToolDefinition[] {
   });
 }
 
-/** Owns exactly one Local VM MCP subprocess for exactly one agent turn. This
- * story intentionally exposes discovery only; tool execution belongs to the
- * later tool-loop stories. */
+function validateToolResult(value: unknown, callId: string): ProviderToolResult {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.content) ||
+    value.content.length > MAX_TOOL_RESULT_ITEMS ||
+    (value.isError !== undefined && typeof value.isError !== "boolean")
+  ) {
+    throw new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool result");
+  }
+  let bytes = 0;
+  const content: ProviderToolResultContent[] = value.content.map((item) => {
+    if (!isRecord(item) || typeof item.type !== "string") {
+      throw new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool result");
+    }
+    if (item.type === "text" && typeof item.text === "string") {
+      bytes += Buffer.byteLength(item.text);
+      if (bytes > MAX_MESSAGE_BYTES) {
+        throw new TurnMcpError("invalid_response", "Local VM MCP tool result exceeded the safety limit");
+      }
+      return Object.freeze({ type: "text" as const, text: item.text });
+    }
+    if (
+      item.type === "image" &&
+      typeof item.data === "string" &&
+      typeof item.mimeType === "string" &&
+      /^image\/[A-Za-z0-9.+-]{1,64}$/.test(item.mimeType)
+    ) {
+      bytes += Buffer.byteLength(item.data) + Buffer.byteLength(item.mimeType);
+      if (bytes > MAX_MESSAGE_BYTES) {
+        throw new TurnMcpError("invalid_response", "Local VM MCP tool result exceeded the safety limit");
+      }
+      return Object.freeze({ type: "image" as const, data: item.data, mimeType: item.mimeType });
+    }
+    throw new TurnMcpError("invalid_response", "Local VM MCP returned an unsupported tool result");
+  });
+  return Object.freeze({
+    callId,
+    content,
+    isError: value.isError === true,
+  });
+}
+
+/** Owns exactly one Local VM MCP subprocess for exactly one agent turn. Tool
+ * execution is exposed only through the application-owned approval gate. */
 export class TurnScopedMcpClient {
   private readonly child: ChildProcessByStdio<Writable, Readable, Readable>;
   private readonly pending = new Map<number, PendingRequest>();
@@ -291,15 +384,20 @@ export class TurnScopedMcpClient {
   private stopped = false;
   private failure: TurnMcpError | null = null;
   private stopTask: Promise<void> | null = null;
+  private readonly requestTimeoutMs: number;
   private discoveredTools: readonly ProviderToolDefinition[] = [];
+  private readonly approvalSessions = new Set<ApprovedToolRequests>();
+  private approvalSessionCreated = false;
   private rejectTermination!: (error: TurnMcpError) => void;
   private readonly termination: Promise<never>;
 
   private constructor(
     child: ChildProcessByStdio<Writable, Readable, Readable>,
+    requestTimeoutMs: number,
     signal?: AbortSignal,
   ) {
     this.child = child;
+    this.requestTimeoutMs = requestTimeoutMs;
     this.signal = signal;
     this.termination = new Promise<never>((_resolve, reject) => {
       this.rejectTermination = reject;
@@ -334,7 +432,7 @@ export class TurnScopedMcpClient {
       stdio: ["pipe", "pipe", "pipe"],
       ...(process.platform === "win32" ? { windowsHide: true } : { detached: true }),
     });
-    const client = new TurnScopedMcpClient(child, options.signal);
+    const client = new TurnScopedMcpClient(child, timeoutMs, options.signal);
     const deadline = Date.now() + timeoutMs;
     try {
       client.attach();
@@ -357,6 +455,26 @@ export class TurnScopedMcpClient {
 
   get tools(): readonly ProviderToolDefinition[] {
     return this.discoveredTools;
+  }
+
+  /** Creates a provider-facing request handle with no approval method. Its
+   * execution authority is derived only from this client's trusted discovery. */
+  createToolApprovalSession(
+    options: Omit<ToolApprovalSessionOptions, "signal">,
+  ): ApprovedToolRequests {
+    if (this.stopped) throw this.failure ?? new TurnMcpError("closed", "Local VM MCP turn is closed");
+    if (this.approvalSessionCreated) {
+      throw new ToolApprovalError("invalid_call", "A Local VM MCP approval session already exists for this turn");
+    }
+    let session: ApprovedToolRequests;
+    session = createApprovedToolRequests(
+      this.discoveredTools,
+      (call) => this.executeApprovedTool(call),
+      { ...options, signal: this.signal },
+    );
+    this.approvalSessionCreated = true;
+    this.approvalSessions.add(session);
+    return session;
   }
 
   /** Resource counts are intentionally content-free: tests and shutdown
@@ -416,9 +534,23 @@ export class TurnScopedMcpClient {
       clearTimeout(pending.timer);
       this.timers.delete(pending.timer);
       if (message.error !== undefined) {
-        pending.reject(new TurnMcpError("rpc_failure", "Local VM MCP request failed"));
+        const error = new TurnMcpError("rpc_failure", "Local VM MCP request failed");
+        pending.reject(error);
+        this.fail(error);
+        return;
       } else {
-        pending.resolve(message.result);
+        let result = message.result;
+        try {
+          result = pending.validate ? pending.validate(result) : result;
+        } catch (error) {
+          const failure = error instanceof TurnMcpError
+            ? error
+            : new TurnMcpError("invalid_response", "Local VM MCP returned an invalid response");
+          pending.reject(failure);
+          this.fail(failure);
+          return;
+        }
+        pending.resolve(result);
       }
     }
   };
@@ -448,26 +580,47 @@ export class TurnScopedMcpClient {
     this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })}\n`);
   }
 
-  private request(method: string, params: unknown, deadline: number): Promise<unknown> {
+  private request(
+    method: string,
+    params: unknown,
+    deadline: number,
+    validate?: (value: unknown) => unknown,
+  ): Promise<unknown> {
     if (this.stopped) {
       return Promise.reject(this.failure ?? new TurnMcpError("closed", "Local VM MCP turn is closed"));
     }
     const remaining = deadline - Date.now();
-    if (remaining <= 0) return Promise.reject(new TurnMcpError("timeout", "Local VM MCP initialization timed out"));
+    if (remaining <= 0) return Promise.reject(new TurnMcpError("timeout", "Local VM MCP request timed out"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         this.timers.delete(timer);
-        const error = new TurnMcpError("timeout", "Local VM MCP initialization timed out");
+        const error = new TurnMcpError("timeout", "Local VM MCP request timed out");
         reject(error);
         this.fail(error);
       }, remaining);
       timer.unref?.();
       this.timers.add(timer);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, ...(validate ? { validate } : {}) });
       this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
+  }
+
+  private async executeApprovedTool(call: ProviderToolCall): Promise<ProviderToolResult> {
+    try {
+      const result = await this.request("tools/call", {
+        name: call.name,
+        arguments: call.arguments,
+      }, Date.now() + this.requestTimeoutMs, (value) => validateToolResult(value, call.id));
+      return result as ProviderToolResult;
+    } catch (error) {
+      const failure = error instanceof TurnMcpError
+        ? error
+        : new TurnMcpError("invalid_response", "Local VM MCP returned an invalid tool result");
+      this.fail(failure);
+      throw failure;
+    }
   }
 
   private fail(error: TurnMcpError): void {
@@ -491,6 +644,8 @@ export class TurnScopedMcpClient {
       this.child.stderr.off("error", this.onStderrError);
       this.child.stdout.pause();
       this.child.stderr.pause();
+      for (const session of this.approvalSessions) session.close();
+      this.approvalSessions.clear();
       for (const pending of this.pending.values()) {
         clearTimeout(pending.timer);
         pending.reject(new TurnMcpError("closed", "Local VM MCP turn is closed"));
