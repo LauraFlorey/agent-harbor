@@ -24,7 +24,14 @@ import {
 import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
-import { isEffortLevel, providerSupportsLocalVm, type RuntimeEvent } from "./contracts.ts";
+import {
+  isEffortLevel,
+  providerSupportsLocalVm,
+  type ProviderInstance,
+  type RuntimeEvent,
+  type ServerToolTurnContext,
+  type ServerToolTurnBridge,
+} from "./contracts.ts";
 import { drainCliTrees } from "./procs.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
@@ -46,6 +53,23 @@ import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease } from "./local-vm-lease.ts";
+import { runLocalVmToolTurn } from "./local-vm-tool-turn.ts";
+import {
+  OPENROUTER_LOCAL_VM_MODEL_ID,
+  openRouterLocalVmTurnEligibility,
+  openRouterTurnDestination,
+} from "./openrouter-local-vm.ts";
+import {
+  createApplicationToolApprovalChannel,
+  type ApplicationToolApprovalDecisions,
+  type ToolApprovalChallenge,
+  type ToolApprovalEvent,
+} from "./tool-approval.ts";
+import { providerSafeToolResult } from "./provider-tool-loop.ts";
+import {
+  DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS,
+  type TurnObservationEvent,
+} from "./tool-turn-control.ts";
 import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -288,6 +312,12 @@ function broadcast(payload: Record<string, unknown>) {
       client.res.write(frame);
     } catch {
       sseClients.delete(client);
+      if (
+        sseClients.size === 0 &&
+        (activeOpenRouterLocalVmTurns.size > 0 || openRouterLocalVmPreflights.size > 0)
+      ) {
+        void cancelOpenRouterLocalVmTurns();
+      }
     }
   }
 }
@@ -379,13 +409,259 @@ const localVmIdle = new LocalVmIdleTimer(
   },
 );
 
+type LocalVmProductState =
+  | "preparing"
+  | "contended"
+  | "working"
+  | "waiting-approval"
+  | "cleaning"
+  | "failed"
+  | "metadata-unverified"
+  | "idle";
+
+interface PendingLocalVmApproval {
+  threadId: string;
+  challenge: ToolApprovalChallenge;
+  decisions: ApplicationToolApprovalDecisions;
+  messageId: string;
+}
+
+const pendingLocalVmApprovals = new Map<string, PendingLocalVmApproval>();
+interface ActiveOpenRouterLocalVmTurn {
+  botId: string;
+  interrupt: () => Promise<void>;
+  done: Promise<void>;
+}
+
+const activeOpenRouterLocalVmTurns = new Map<string, ActiveOpenRouterLocalVmTurn>();
+const openRouterLocalVmPreflights = new Map<string, {
+  abort: AbortController;
+  done: Promise<void>;
+}>();
+
+function localVmProductState(botId: string, state: LocalVmProductState) {
+  broadcast({ kind: "local-vm-turn", botId, state });
+}
+
+function localVmAction(tool: string): string {
+  const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/[_-]+/g, " ").trim();
+  return bare ? `Use ${bare.slice(0, 100)} in the isolated desktop` : "Use a tool in the isolated desktop";
+}
+
+function createLocalVmApprovalChannel(
+  bot: NonNullable<ReturnType<typeof store.bot>>,
+  threadId: string,
+  modelLabel: string,
+) {
+  let decisions: ApplicationToolApprovalDecisions;
+  const created = createApplicationToolApprovalChannel((event: ToolApprovalEvent) => {
+    if (event.type === "request.opened") {
+      // An approval cannot be knowingly shown when no renderer is attached.
+      if (sseClients.size === 0) throw new Error("approval renderer unavailable");
+      const message = store.appendMessage(threadId, {
+        role: "bot",
+        kind: "options",
+        card: {
+          title: `${bot.name} wants to use the Local VM`,
+          subtitle: `${localVmAction(event.tool)}\n${event.summary}`,
+          options: ["Allow", "Deny"],
+          requestId: event.requestId,
+          tool: event.tool,
+          approvalKind: "openrouter-local-vm",
+          modelLabel,
+          destination: "Local VM",
+          consequential: event.consequential,
+          expiresAt: event.challenge.expiresAt,
+          oneAttempt: true,
+          held: event.consequential ? "This action may change a page or affect something outside the chat." : undefined,
+        },
+      });
+      pendingLocalVmApprovals.set(event.requestId, {
+        threadId,
+        challenge: event.challenge,
+        decisions,
+        messageId: message.id,
+      });
+      broadcast({ kind: "message", threadId, message });
+      localVmProductState(bot.id, "waiting-approval");
+      notify(buildNotification("approval", bot, threadId, event.summary));
+      return;
+    }
+
+    const pending = pendingLocalVmApprovals.get(event.requestId);
+    if (!pending || pending.threadId !== threadId) return;
+    pendingLocalVmApprovals.delete(event.requestId);
+    const existing = store.messagesFor(threadId).find((message) => message.id === pending.messageId);
+    if (existing?.card && !existing.card.answered) {
+      const patched = store.patchMessage(threadId, pending.messageId, {
+        card: {
+          ...existing.card,
+          answered: event.behavior,
+          dismissed: event.source !== "application",
+        },
+      });
+      if (patched) broadcast({ kind: "message.patch", threadId, message: patched });
+    }
+    if (activeOpenRouterLocalVmTurns.has(threadId)) localVmProductState(bot.id, "working");
+  });
+  decisions = created.decisions;
+  return created.channel;
+}
+
+function resolveLocalVmApproval(
+  threadId: string,
+  requestId: unknown,
+  behavior: unknown,
+): "missing" | "resolved" | "rejected" {
+  if (typeof requestId !== "string") return "missing";
+  const pending = pendingLocalVmApprovals.get(requestId);
+  if (!pending || pending.threadId !== threadId) return "missing";
+  if (behavior !== "allow" && behavior !== "deny") return "rejected";
+  return pending.decisions.resolve({ challenge: pending.challenge, behavior }) ? "resolved" : "rejected";
+}
+
+async function cancelOpenRouterLocalVmTurns(): Promise<void> {
+  const preflights = [...openRouterLocalVmPreflights.values()];
+  for (const preflight of preflights) preflight.abort.abort();
+  await Promise.allSettled([
+    ...preflights.map((preflight) => preflight.done),
+    ...[...activeOpenRouterLocalVmTurns.values()].map(async (turn) => {
+      try {
+        await turn.interrupt();
+      } finally {
+        await turn.done;
+      }
+    }),
+  ]);
+}
+
+async function cancelOpenRouterLocalVmTurn(threadId: string): Promise<void> {
+  const preflight = openRouterLocalVmPreflights.get(threadId);
+  const turn = activeOpenRouterLocalVmTurns.get(threadId);
+  preflight?.abort.abort();
+  await Promise.allSettled([
+    ...(preflight ? [preflight.done] : []),
+    ...(turn ? [(async () => {
+      try {
+        await turn.interrupt();
+      } finally {
+        await turn.done;
+      }
+    })()] : []),
+  ]);
+}
+
+function observeLocalVmTurn(botId: string, event: TurnObservationEvent): void {
+  if (event.type === "preview.refresh_requested") {
+    broadcast({ kind: "local-vm-preview", botId });
+    return;
+  }
+  if (event.type === "state.transition") {
+    if (event.state === "acquiring") localVmProductState(botId, "preparing");
+    else if (event.state === "active") localVmProductState(botId, "working");
+    else if (event.state === "cancelling" || event.state === "cleaning") localVmProductState(botId, "cleaning");
+    return;
+  }
+  if (event.type === "lease.lifecycle" && event.lease === "contended") {
+    localVmProductState(botId, "contended");
+  } else if (event.type === "cleanup.outcome" && event.outcome === "failure") {
+    localVmProductState(botId, "failed");
+  }
+}
+
+function openRouterServerToolTurn(
+  bot: NonNullable<ReturnType<typeof store.bot>>,
+  instance: ProviderInstance,
+  threadId: string,
+  modelLabel: string,
+  turnTimeoutMs: number,
+): ServerToolTurnBridge {
+  return Object.freeze({
+    async run<T>(
+      turnId: string,
+      signal: AbortSignal,
+      operation: (context: ServerToolTurnContext) => Promise<T>,
+    ): Promise<T> {
+      if (activeOpenRouterLocalVmTurns.has(threadId)) throw new Error("an OpenRouter Local VM turn is already active");
+      let markDone!: () => void;
+      const done = new Promise<void>((resolve) => {
+        markDone = resolve;
+      });
+      const active = {
+        botId: bot.id,
+        interrupt: () => instance.adapter.interruptTurn(threadId, turnId),
+        done,
+      };
+      activeOpenRouterLocalVmTurns.set(threadId, active);
+      localVmActiveThread = threadId;
+      localVmIdle.touch();
+      const approval = createLocalVmApprovalChannel(bot, threadId, modelLabel);
+      try {
+        const result = await runLocalVmToolTurn({
+          lease: localVmLease,
+          binding: { roomId: threadId, turnId, sessionId: bot.id },
+          signal,
+          approval,
+          limits: { turnTimeoutMs },
+          observe: (event) => observeLocalVmTurn(bot.id, event),
+          endpoint: async (turnSignal) => {
+            const current = store.bot(bot.id);
+            const option = instance.models.options.find((candidate) => candidate.id === current?.modelSelection.model);
+            const gate = openRouterLocalVmTurnEligibility({
+              globalEnabled: cfg.openrouter?.localVmEnabled === true,
+              agentEnabled: current?.openrouterLocalVm === true,
+              directConversation: !store.groupByThread(threadId),
+              destination: current?.computer,
+              selectedModel: current?.modelSelection.model ?? "",
+              catalogCapability: option?.localVm,
+            });
+            if (!gate.eligible) throw new Error("OpenRouter Local VM eligibility changed before startup");
+            if (localVmLifecycleBusy) {
+              throw new Error("The Local VM is being prepared. Wait for setup to finish.");
+            }
+            const status = await containerComputerStatus(undefined, undefined, turnSignal);
+            if (!status.ready || !status.runtime) {
+              throw new Error(`${status.problem ?? "The Local VM is not ready"}. Open App Settings → Local VM.`);
+            }
+            return containerComputerMcp(status.runtime);
+          },
+        }, async (context) => operation({
+          tools: context.tools,
+          signal: context.signal,
+          execute: async (call) => {
+            const result = await context.requests.execute(call);
+            return providerSafeToolResult(call, result);
+          },
+        }));
+        localVmProductState(bot.id, "idle");
+        return result;
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        localVmProductState(bot.id, code === "lease_contended" ? "contended" : signal.aborted ? "idle" : "failed");
+        throw error;
+      } finally {
+        if (activeOpenRouterLocalVmTurns.get(threadId) === active) {
+          activeOpenRouterLocalVmTurns.delete(threadId);
+        }
+        if (localVmActiveThread === threadId) localVmActiveThread = null;
+        localVmIdle.touch();
+        markDone();
+      }
+    },
+  });
+}
+
 // A running VM may have survived an app/server restart. Start its idle
 // backstop even if nobody opens Settings or begins a turn this session.
-void containerComputerStatus()
-  .then((status) => {
-    if (status.container === "running") localVmIdle.touch();
-  })
-  .catch(() => null);
+if (process.env.OMB_SKIP_LOCAL_VM_STARTUP_PROBE !== "1") {
+  void containerComputerStatus()
+    .then((status) => {
+      if (status.container === "running") localVmIdle.touch();
+    })
+    .catch(() => null);
+}
 
 bus.subscribe((event: RuntimeEvent) => {
   localVmLease.touch(event.threadId);
@@ -821,6 +1097,65 @@ async function startTurn(
   void (async () => {
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
+      // OpenRouter Local VM authority is exact and turn-specific. Ineligible
+      // OpenRouter models still take the unchanged text-only path even when
+      // an old persisted computer value happens to say "vm".
+      const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
+      const toolTurnStartedNs = process.hrtime.bigint();
+      let openRouterMetadataCurrent = true;
+      let openRouterToolTurnTimeoutMs = DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS.turnTimeoutMs;
+      const openRouterPreflightRequired =
+        instance.driverKind === "openrouter" &&
+        cfg.openrouter?.localVmEnabled === true &&
+        bot.openrouterLocalVm === true &&
+        wants === "vm" &&
+        model === OPENROUTER_LOCAL_VM_MODEL_ID &&
+        !store.groupByThread(threadId);
+      if (openRouterPreflightRequired) {
+        const abort = new AbortController();
+        let markDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+          markDone = resolve;
+        });
+        openRouterLocalVmPreflights.set(threadId, { abort, done });
+        try {
+          if (!instance.refreshModels) {
+            openRouterMetadataCurrent = false;
+          } else {
+            await instance.refreshModels(abort.signal);
+          }
+          abort.signal.throwIfAborted();
+        } catch (error) {
+          if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          openRouterMetadataCurrent = false;
+        } finally {
+          openRouterLocalVmPreflights.delete(threadId);
+          markDone();
+        }
+        const elapsedMs = Math.ceil(Number(process.hrtime.bigint() - toolTurnStartedNs) / 1_000_000);
+        openRouterToolTurnTimeoutMs = Math.max(
+          1,
+          DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS.turnTimeoutMs - elapsedMs,
+        );
+      }
+      const openRouterOption = instance.models.options.find((option) => option.id === model);
+      const openRouterGate = instance.driverKind === "openrouter"
+        ? openRouterLocalVmTurnEligibility({
+            globalEnabled: cfg.openrouter?.localVmEnabled === true,
+            agentEnabled: bot.openrouterLocalVm === true,
+            directConversation: !store.groupByThread(threadId),
+            destination: wants,
+            selectedModel: model,
+            catalogCapability: openRouterMetadataCurrent ? openRouterOption?.localVm : undefined,
+          })
+        : null;
+      const openRouterLocalVm = openRouterGate?.eligible === true;
+      if (openRouterPreflightRequired && !openRouterLocalVm) {
+        localVmProductState(bot.id, "metadata-unverified");
+      }
+      const routedDestination = instance.driverKind === "openrouter"
+        ? openRouterTurnDestination(wants, openRouterLocalVm)
+        : wants;
       // the user's connected apps, but only to a driver that can mount
       // them — a key in the config says the connections exist, not that
       // this engine can reach them
@@ -830,10 +1165,9 @@ async function startTurn(
       // dweb is opt-in: without an explicit daemon URL, do not advertise
       // tools that would fail on every call or spawn an unnecessary proxy.
       const dwebUrl = process.env.DWEB_URL?.trim();
-      if (dwebUrl) integrations.dweb = { url: dwebUrl };
+      if (dwebUrl && !openRouterLocalVm) integrations.dweb = { url: dwebUrl };
       // Legacy unset values fail closed. Host desktop control is available
       // only after the user explicitly selects "This computer".
-      const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
       const { computerUse, executionMode } = instance.adapter.capabilities;
       const mountsComputerMcp = computerUse === "mcp";
       const canUseLocalVm = providerSupportsLocalVm(instance.adapter.capabilities);
@@ -843,28 +1177,37 @@ async function startTurn(
 
       // Explicit destinations are strict. In particular, Local VM must never
       // fall through to host CUA and accidentally click on the user's Mac.
-      if (wants === "vm") {
-        if (!canUseLocalVm) {
+      if (routedDestination === "vm") {
+        if (openRouterLocalVm) {
+          integrations.serverToolTurn = openRouterServerToolTurn(
+            bot,
+            instance,
+            threadId,
+            openRouterOption?.label ?? model,
+            openRouterToolTurnTimeoutMs,
+          );
+          computerKind = "vm";
+        } else if (instance.driverKind === "openrouter") {
+          // Explicitly text-only: the Terra manifest is a tool allowlist,
+          // never a general OpenRouter model or chat allowlist.
+        } else if (!canUseLocalVm) {
           throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
-        }
-        if (localVmLifecycleBusy) {
+        } else if (localVmLifecycleBusy) {
           throw new Error("the Local VM is being started, stopped, or replaced — wait for setup to finish");
-        }
-        // Claim before the first await. The lifecycle route performs its
-        // matching check synchronously, so neither side can enter while the
-        // other is between inspection and mutation.
-        if (!localVmLease.claim(threadId, bot.id, localVmOwnerBusy)) {
+        } else if (!localVmLease.claim(threadId, bot.id, localVmOwnerBusy)) {
+          // Existing MCP providers retain their legacy lease path unchanged.
           throw new Error("the shared Local VM is already being used by another bot — wait for that turn to finish");
+        } else {
+          localVmActiveThread = threadId;
+          localVmIdle.touch();
+          const localVm = await containerComputerStatus();
+          if (!localVm.ready || !localVm.runtime) {
+            throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Local VM)`);
+          }
+          integrations.localComputer = containerComputerMcp(localVm.runtime);
+          computerKind = "vm";
         }
-        localVmActiveThread = threadId;
-        localVmIdle.touch();
-        const localVm = await containerComputerStatus();
-        if (!localVm.ready || !localVm.runtime) {
-          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Local VM)`);
-        }
-        integrations.localComputer = containerComputerMcp(localVm.runtime);
-        computerKind = "vm";
-      } else if (wants === "local") {
+      } else if (routedDestination === "local") {
         if (!mountsComputerMcp) {
           throw new Error("this model engine cannot control this computer — choose Claude or an ACP engine, or select another destination");
         }
@@ -876,8 +1219,8 @@ async function startTurn(
 
       // Cloud is strict and explicit: merely having a configured box never
       // grants a bot computer access.
-      if (wants === "cloud" && box.boxConfigured(cfg)) {
-        if (!mountsCloudComputer && wants === "cloud") {
+      if (routedDestination === "cloud" && box.boxConfigured(cfg)) {
+        if (!mountsCloudComputer) {
           throw new Error("this model engine cannot use computer tools — choose Claude, an ACP engine, or the Computer engine");
         }
         let b = await box.findBox(cfg, bot.id).catch(() => null);
@@ -902,10 +1245,10 @@ async function startTurn(
           }
         }
       }
-      if (wants === "cloud" && !box.boxConfigured(cfg)) {
+      if (routedDestination === "cloud" && !box.boxConfigured(cfg)) {
         throw new Error("Cloud box is not configured — add a Box API key or choose Local VM");
       }
-      if (wants === "cloud" && !integrations.computer) {
+      if (routedDestination === "cloud" && !integrations.computer) {
         throw new Error("the cloud computer could not be created or reached");
       }
 
@@ -950,13 +1293,15 @@ async function startTurn(
         transcript,
         system:
           persona +
-          (executionMode === "local-process"
+          (executionMode === "local-process" && !openRouterLocalVm
             ? bot.hostAccess === true
               ? ` The user explicitly enabled host-file access for this bot. Your working directory is ${workingDirectory}. Continue to use the normal approval flow for sensitive actions.`
               : ` Your private working directory is ${workingDirectory}. Keep file work inside it. If work requires another host path, stop and ask the user to enable Host files in this bot's settings.`
             : "") +
           (computerKind === "vm"
-            ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
+            ? openRouterLocalVm
+              ? " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the discovered Local VM computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
+              : " You have a shared, isolated Cua sandbox: a Linux desktop in a container on this machine. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
             : computerKind === "box" && computerUse === "mcp"
             ? " You have your own cloud computer. In Chrome, prefer browser_snapshot with browser_click/browser_fill for semantic, trusted actions; use screenshot/click/type_text for visual or non-browser UI, open_url for navigation, and computer_exec for Linux tasks. Every action already returns the resulting screen, so don't follow it with screenshot; batch predictable pixel actions with computer_batch."
               : computerKind === "local"
@@ -980,7 +1325,7 @@ async function startTurn(
                 .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
             : ""),
         integrations,
-        ...(executionMode === "local-process" ? { cwd: workingDirectory } : {}),
+        ...(executionMode === "local-process" && !openRouterLocalVm ? { cwd: workingDirectory } : {}),
       });
       // dispatched: the rewind is spent, and the old cursors are dead
       if (rewound) store.patchBot(bot.id, { rewound: false, resumeCursors: {} });
@@ -988,6 +1333,11 @@ async function startTurn(
     } catch (e) {
       localVmLease.release(threadId);
       if (localVmActiveThread === threadId) localVmActiveThread = null;
+      if (e instanceof Error && e.name === "AbortError") {
+        store.patchBot(bot.id, { busy: false });
+        broadcast({ kind: "bot", bot: wireBot(store.bot(bot.id)!) });
+        return;
+      }
       const message = e instanceof Error ? e.message : String(e);
       const failure = store.appendMessage(threadId, {
         role: "bot",
@@ -1026,6 +1376,7 @@ routines = new RoutineManager({
       : bot
         ? registry.get(bot.modelSelection.instanceId)
         : null;
+    await cancelOpenRouterLocalVmTurn(threadId);
     await instance?.adapter.interruptTurn(threadId);
   },
 });
@@ -1264,7 +1615,10 @@ function startGroupTurn(groupId: string, text: string) {
 function configStatus() {
   return {
     xai: { configured: Boolean(cfg.xai?.key) },
-    openrouter: { configured: Boolean(cfg.openrouter?.apiKey) },
+    openrouter: {
+      configured: Boolean(cfg.openrouter?.apiKey),
+      localVmEnabled: cfg.openrouter?.localVmEnabled === true,
+    },
     composio: { configured: Boolean(cfg.composio?.key), apiKeyConfigured: Boolean(cfg.composio?.apiKey) },
     box: { configured: Boolean(cfg.box?.token) },
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
@@ -1650,6 +2004,12 @@ const server = createServer(async (req, res) => {
       req.on("close", () => {
         clearInterval(keepalive);
         sseClients.delete(client);
+        if (
+          sseClients.size === 0 &&
+          (activeOpenRouterLocalVmTurns.size > 0 || openRouterLocalVmPreflights.size > 0)
+        ) {
+          void cancelOpenRouterLocalVmTurns();
+        }
       });
       return;
     }
@@ -1928,7 +2288,7 @@ const server = createServer(async (req, res) => {
         }
       }
       const patch: Record<string, unknown> = {};
-      for (const key of ["name", "title", "description", "notifications", "modelSelection", "unread", "computer", "color", "mascotExpression", "pinned", "hidden", "speakReplies", "voice"] as const) {
+      for (const key of ["name", "title", "description", "notifications", "modelSelection", "unread", "computer", "openrouterLocalVm", "color", "mascotExpression", "pinned", "hidden", "speakReplies", "voice"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
       if (
@@ -1936,6 +2296,9 @@ const server = createServer(async (req, res) => {
         !["cloud", "vm", "local", "off"].includes(String(body.computer))
       ) {
         return json(res, 400, { error: "computer must be cloud, vm, local, or off" });
+      }
+      if (body.openrouterLocalVm !== undefined && typeof body.openrouterLocalVm !== "boolean") {
+        return json(res, 400, { error: "openrouterLocalVm must be true or false" });
       }
       if (body.chiefOfStaff !== undefined && typeof body.chiefOfStaff !== "boolean") {
         return json(res, 400, { error: "chiefOfStaff must be true or false" });
@@ -1966,8 +2329,20 @@ const server = createServer(async (req, res) => {
         }
         patch.alwaysAllow = [...new Set(body.alwaysAllow as string[])].slice(0, 200);
       }
+      const cancelsActiveOpenRouterLocalVm = Boolean(
+        existing && (
+          activeOpenRouterLocalVmTurns.has(existing.threadId) ||
+          openRouterLocalVmPreflights.has(existing.threadId)
+        ) && (
+          (body.openrouterLocalVm !== undefined && body.openrouterLocalVm !== existing.openrouterLocalVm) ||
+          (body.computer !== undefined && body.computer !== existing.computer) ||
+          (body.modelSelection !== undefined && JSON.stringify(body.modelSelection) !== JSON.stringify(existing.modelSelection))
+        ),
+      );
+      const activeThreadId = existing?.threadId;
       const bot = store.patchBot(m[1], patch);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (cancelsActiveOpenRouterLocalVm && activeThreadId) await cancelOpenRouterLocalVmTurn(activeThreadId);
       const chiefChanges =
         body.chiefOfStaff === true
           ? store.setChiefOfStaff(bot.id)
@@ -1985,6 +2360,7 @@ const server = createServer(async (req, res) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       // a running turn dies with its bot
+      await cancelOpenRouterLocalVmTurn(bot.threadId);
       await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(bot.threadId).catch(() => {});
       stopScreenPoller(bot.id);
       routines!.disableForBot(bot.id);
@@ -2084,6 +2460,9 @@ const server = createServer(async (req, res) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       const body = await readBody(req);
+      const localVmDecision = resolveLocalVmApproval(bot.threadId, body.requestId, body.behavior);
+      if (localVmDecision === "resolved") return json(res, 200, { ok: true });
+      if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
       // peer-approval intercept: harness-native cards carry a requestId
       // that lives in peer-approval's pending map. Resolve them here so
       // the provider adapter never sees a request it didn't raise.
@@ -2105,6 +2484,9 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const threadId = m[1];
       const body = await readBody(req);
+      const localVmDecision = resolveLocalVmApproval(threadId, body.requestId, body.behavior);
+      if (localVmDecision === "resolved") return json(res, 200, { ok: true });
+      if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
       const group = store.groupByThread(threadId);
       const owner = group ? (group.busyBotId ? store.bot(group.busyBotId) : undefined) : store.botByThread(threadId);
       if (!owner) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
@@ -2130,6 +2512,7 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
+      await cancelOpenRouterLocalVmTurn(bot.threadId);
       await instance?.adapter.interruptTurn(bot.threadId);
       return json(res, 200, { ok: true });
     }
@@ -2270,6 +2653,13 @@ const server = createServer(async (req, res) => {
       ) {
         return json(res, 400, { error: "openrouter.apiKey must be a string" });
       }
+      if (
+        rawOpenRouter
+        && Object.prototype.hasOwnProperty.call(rawOpenRouter, "localVmEnabled")
+        && typeof (rawOpenRouter as { localVmEnabled?: unknown }).localVmEnabled !== "boolean"
+      ) {
+        return json(res, 400, { error: "openrouter.localVmEnabled must be true or false" });
+      }
       const rawOpenCode = body.opencodeGo;
       if (
         rawOpenCode !== undefined
@@ -2305,12 +2695,21 @@ const server = createServer(async (req, res) => {
         const check = await tts.verifyKey(newTts.key.trim());
         if (!check.ok) return json(res, 400, { error: check.message });
       }
+      const disablingOpenRouterLocalVm =
+        cfg.openrouter?.localVmEnabled === true &&
+        (patch.openrouter as { localVmEnabled?: unknown } | undefined)?.localVmEnabled === false;
+      const openRouterToggleOnly = Object.keys(patch).length === 1 &&
+        patch.openrouter !== undefined &&
+        Object.keys(patch.openrouter).every((key) => key === "localVmEnabled");
       saveConfig(patch);
       Object.assign(cfg, loadConfig());
+      if (disablingOpenRouterLocalVm) await cancelOpenRouterLocalVmTurns();
       // provider keys change the fleet; a profile or voice edit must not
       // kill in-flight turns with a pointless reload — no driver reads
       // either, and picking a voice mid-turn should be free
-      if (Object.keys(patch).some((k) => k !== "profile" && k !== "tts")) await reloadProviders();
+      if (!openRouterToggleOnly && Object.keys(patch).some((k) => k !== "profile" && k !== "tts")) {
+        await reloadProviders();
+      }
       const status = configStatus();
       broadcast({ kind: "config", ...status });
       return json(res, 200, status);
@@ -2439,6 +2838,7 @@ async function shutdown() {
     localVmIdle.cancel();
     routines?.stop();
     webhookIngress?.server.close();
+    await cancelOpenRouterLocalVmTurns();
     await registry.disposeAll();
     await drainCliTrees();
   } finally {

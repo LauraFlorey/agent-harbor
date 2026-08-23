@@ -51,6 +51,17 @@ export function ApprovalCard({
         {card.tool && <span className="shrink-0 font-mono text-[11px] text-ink-secondary">{card.tool}</span>}
       </div>
 
+      {card.approvalKind === "openrouter-local-vm" && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink-secondary">
+          <span>Model: {card.modelLabel ?? "OpenRouter"}</span>
+          <span>Destination: {card.destination ?? "Local VM"}</span>
+          {card.oneAttempt && <span>One attempt only</span>}
+          {card.expiresAt && (
+            <span>Expires in {Math.max(0, Math.ceil((card.expiresAt - Date.now()) / 1000))} seconds</span>
+          )}
+        </div>
+      )}
+
       {/* what, exactly */}
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink">
         {card.subtitle}

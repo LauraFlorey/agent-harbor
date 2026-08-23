@@ -7,12 +7,20 @@ export interface ComputerRoutingCapabilities {
   executionMode?: "local-process" | "remote-computer";
 }
 
+export interface ComputerRoutingContext {
+  /** Exact-model, agent, and feature authority for a server-owned Local VM
+   * turn. It never grants host or cloud computer access. */
+  localVmServerEligible?: boolean;
+}
+
 export function supportsComputerDestination(
   capabilities: ComputerRoutingCapabilities | undefined,
   destination: ComputerDestination,
+  context: ComputerRoutingContext = {},
 ): boolean {
   if (destination === "off") return true;
   if (destination === "vm") {
+    if (context.localVmServerEligible) return true;
     return (
       capabilities?.executionMode === "local-process" &&
       (capabilities.computerUse === "mcp" || capabilities.computerUse === "server")

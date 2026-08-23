@@ -111,6 +111,37 @@ function readyInspect(overrides: Record<string, unknown> = {}) {
 }
 
 describe("containerComputerStatus", () => {
+  it("propagates cancellation into an in-flight readiness subprocess", async () => {
+    const controller = new AbortController();
+    let probeStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      probeStarted = resolve;
+    });
+    let probeAborted = false;
+    const run: CommandRunner = async (command, args, _timeout, signal) => {
+      if ((command === "/usr/bin/which" || command === "where.exe") && args[0] === "docker") {
+        return { stdout: "docker\n" };
+      }
+      if (command === "/usr/bin/which" || command === "where.exe") throw new Error("missing");
+      if (command === "docker" && args[0] === "info") {
+        probeStarted();
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            probeAborted = true;
+            reject(signal.reason);
+          }, { once: true });
+        });
+      }
+      throw new Error("unexpected readiness command");
+    };
+
+    const status = containerComputerStatus(run, "linux", controller.signal);
+    await started;
+    controller.abort();
+    await status;
+    expect(probeAborted).toBe(true);
+  });
+
   it("prefers a running runtime over an earlier installed but stopped one", async () => {
     const fake = runner({
       "/usr/bin/which docker": "docker\n",

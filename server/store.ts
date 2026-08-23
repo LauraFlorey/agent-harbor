@@ -46,6 +46,14 @@ export interface OptionCardData {
   held?: string;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  /** Application-owned Local VM approvals deliberately omit allowKey and
+   * carry only bounded display metadata. */
+  approvalKind?: "openrouter-local-vm";
+  modelLabel?: string;
+  destination?: "Local VM";
+  consequential?: boolean;
+  expiresAt?: number;
+  oneAttempt?: boolean;
 }
 
 export interface Message {
@@ -145,6 +153,9 @@ export interface BotRecord {
   resumeCursors: Record<string, unknown>;
   /** Which computer the bot acts on. Unset legacy values fail closed as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Independent consent for the experimental OpenRouter Local VM loop.
+   * Absent persisted values are false and are never migrated implicitly. */
+  openrouterLocalVm?: boolean;
   /** Start local provider CLIs in the user's home directory instead of this
    * bot's private workspace. Off by default and never exported with teams. */
   hostAccess?: boolean;
@@ -603,6 +614,7 @@ export class Store {
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},
       computer: "off",
+      openrouterLocalVm: false,
       hostAccess: false,
       createdAt: Date.now(),
     };

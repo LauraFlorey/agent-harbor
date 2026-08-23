@@ -63,7 +63,18 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
       ...(sameInstance && selection.effort ? { effort: selection.effort } : {}),
     };
     const computer: ComputerDestination = bot.computer ?? "off";
-    const turnComputerOff = !supportsComputerDestination(instance.capabilities, computer);
+    const option = instance.models.options.find((candidate) => candidate.id === model);
+    const localVmServerEligible = Boolean(
+      instance.driverKind === "openrouter" &&
+      state.config?.openrouter?.localVmEnabled &&
+      bot.openrouterLocalVm &&
+      option?.localVm?.status === "verified",
+    );
+    // OpenRouter model selection is never narrowed by the Terra tool
+    // allowlist. An ineligible model stays text-capable and its persisted
+    // computer preference stays untouched and inert.
+    const turnComputerOff = instance.driverKind !== "openrouter" &&
+      !supportsComputerDestination(instance.capabilities, computer, { localVmServerEligible });
     if (
       turnComputerOff &&
       !window.confirm(
@@ -174,6 +185,14 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
                         {option.id === railInstance.models.default && (
                           <span className="shrink-0 rounded bg-inset px-1 py-px text-[10px] text-ink-secondary">
                             default
+                          </span>
+                        )}
+                        {railInstance.driverKind === "openrouter" && option.localVm?.status === "verified" && (
+                          <span
+                            className="shrink-0 rounded bg-accent/10 px-1 py-px text-[10px] text-accent"
+                            title={option.localVm.reason}
+                          >
+                            Local VM verified
                           </span>
                         )}
                       </span>

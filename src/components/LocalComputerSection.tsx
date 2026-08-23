@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Card, CommandLine } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
+import { useStore } from "@/state/store";
 
 type Action = "pull" | "run" | "start" | "stop" | "remove" | "recreate";
 
@@ -99,6 +100,7 @@ function ActionButton({
 }
 
 export function LocalComputerSection() {
+  const { state: appState, dispatch } = useStore();
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Action | null>(null);
@@ -194,9 +196,61 @@ export function LocalComputerSection() {
   );
   const unavailable = !loading && !status;
   const host = status?.platform === "darwin" ? "Mac" : "computer";
+  const openRouterLocalVmEnabled = appState.config?.openrouter?.localVmEnabled === true;
+
+  const toggleOpenRouterLocalVm = async () => {
+    const next = !openRouterLocalVmEnabled;
+    if (
+      next &&
+      !window.confirm(
+        "Enable experimental OpenRouter access to the isolated Local VM? Each agent must also opt in, only verified Terra is eligible, and every tool call requires Allow once.",
+      )
+    ) return;
+    try {
+      const response = await fetch("/api/config", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ openrouter: { localVmEnabled: next } }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Could not update OpenRouter Local VM access");
+      dispatch({ type: "configStatus", config: body });
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
 
   return (
     <>
+      <Card
+        title="OpenRouter Local VM (experimental)"
+        subtitle="Off by default. When enabled, each agent must separately opt in, the exact verified Terra model must pass current metadata checks, and every tool call requires Allow once. Other OpenRouter models keep ordinary text chat."
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-[13px] text-ink-secondary">
+            {openRouterLocalVmEnabled
+              ? "Enabled app-wide; per-agent permissions still apply."
+              : "Off app-wide. Disabling this also cancels and cleans up active OpenRouter Local VM turns."}
+          </div>
+          <button
+            role="switch"
+            aria-checked={openRouterLocalVmEnabled}
+            aria-label="Experimental OpenRouter Local VM"
+            onClick={() => void toggleOpenRouterLocalVm()}
+            className={cn(
+              "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+              openRouterLocalVmEnabled ? "bg-accent" : "bg-raised",
+            )}
+          >
+            <span className={cn(
+              "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+              openRouterLocalVmEnabled ? "left-[21px]" : "left-[3px]",
+            )} />
+          </button>
+        </div>
+      </Card>
+
       <Card
         title="Local VM"
         subtitle={`A shared Cua Linux sandbox on this ${host} for bots to browse and work in — isolated, backed by one durable workspace, and automatically recycled after 8 hours without activity.`}

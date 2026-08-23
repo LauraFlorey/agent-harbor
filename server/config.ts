@@ -11,7 +11,12 @@ import { createPlatformSecretStore, type SecretId, type SecretStore } from "./se
 export interface AppConfig {
   xai?: { key?: string; url?: string };
   /** OpenRouter key; persisted write-only and exposed only to its driver. */
-  openrouter?: { apiKey?: string; url?: string };
+  openrouter?: {
+    apiKey?: string;
+    url?: string;
+    /** Experimental, owner-controlled, default-off kill switch. */
+    localVmEnabled?: boolean;
+  };
   /** key = ck_… Connect consumer key (connections + agent tools);
    * apiKey = ak_… project API key — optional, unlocks the full toolkit
    * catalog with official logos in the plugins marketplace. */

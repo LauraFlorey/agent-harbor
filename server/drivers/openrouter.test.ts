@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { RuntimeEvent } from "../contracts.ts";
+import type { RuntimeEvent, ServerToolTurnBridge } from "../contracts.ts";
 import { ProviderError } from "../contracts.ts";
 import {
   createOpenRouterDriver,
@@ -13,6 +13,7 @@ import {
   interleavedToolCallsSse,
   sequentialToolCallsSse,
 } from "../testing/openrouter-sse-fixtures.ts";
+import { ToolApprovalError } from "../tool-approval.ts";
 
 const KEY = "sk-or-v1-test-secret";
 const TOOL_DEFINITIONS = [{
@@ -115,8 +116,15 @@ describe("OpenRouter model catalog", () => {
       return new Response(JSON.stringify({
         data: [
           { id: "openrouter/auto", name: "OpenRouter Auto", architecture: { output_modalities: ["text"] } },
+          {
+            id: "openai/gpt-5.6-terra",
+            name: "Terra",
+            architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+            supported_parameters: ["tools"],
+          },
           { id: "vendor/audio", name: "Audio only", architecture: { output_modalities: ["audio"] } },
           { id: "bad id", name: "Invalid" },
+          { id: KEY, name: `echoed ${KEY}` },
           { id: "vendor/text-model", name: "Text Model" },
         ],
       }), { status: 200 });
@@ -125,9 +133,23 @@ describe("OpenRouter model catalog", () => {
     expect(requestedUrl).toBe("https://router.test/v1/models/user");
     expect(authorization).toBe(`Bearer ${KEY}`);
     expect(catalog.default).toBe("openrouter/auto");
+    expect(JSON.stringify(catalog)).not.toContain(KEY);
     expect(catalog.options).toEqual([
-      { id: "openrouter/auto", label: "OpenRouter Auto" },
-      { id: "vendor/text-model", label: "Text Model" },
+      {
+        id: "openrouter/auto",
+        label: "OpenRouter Auto",
+        localVm: expect.objectContaining({ status: "unsupported" }),
+      },
+      {
+        id: "openai/gpt-5.6-terra",
+        label: "Terra",
+        localVm: expect.objectContaining({ status: "verified", manifestRevision: expect.any(String) }),
+      },
+      {
+        id: "vendor/text-model",
+        label: "Text Model",
+        localVm: expect.objectContaining({ status: "unsupported" }),
+      },
     ]);
   });
 
@@ -142,6 +164,51 @@ describe("OpenRouter model catalog", () => {
     await expect(fetchOpenRouterModels(KEY, undefined, async () => new Response(JSON.stringify({
       error: { message: `bad key ${KEY}` },
     }), { status: 401 }))).rejects.not.toThrow(KEY);
+  });
+
+  it("keeps duplicate catalog IDs selectable for text but revokes conflicting Terra tool metadata", async () => {
+    const catalog = await fetchOpenRouterModels(KEY, undefined, async () => new Response(JSON.stringify({
+      data: [
+        {
+          id: "openai/gpt-5.6-terra",
+          name: "Terra",
+          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+          supported_parameters: ["tools"],
+        },
+        {
+          id: "openai/gpt-5.6-terra",
+          name: "Conflicting Terra record",
+          architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+          supported_parameters: [],
+        },
+      ],
+    })));
+
+    expect(catalog.options).toHaveLength(1);
+    expect(catalog.options[0]).toMatchObject({
+      id: "openai/gpt-5.6-terra",
+      localVm: { status: "unknown" },
+    });
+  });
+
+  it("cancels turn-time catalog verification and removes its caller listener", async () => {
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    let requestAborted = false;
+    const catalog = fetchOpenRouterModels(KEY, undefined, async (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          requestAborted = true;
+          reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+      }), controller.signal);
+
+    controller.abort();
+    await expect(catalog).rejects.toMatchObject({ name: "AbortError" });
+    expect(requestAborted).toBe(true);
+    expect(addListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 });
 
@@ -753,7 +820,11 @@ describe("OpenRouter runtime", () => {
     await instance.refreshModels?.();
     expect(instance.models).toEqual({
       default: "vendor/model",
-      options: [{ id: "vendor/model", label: "Vendor Model" }],
+      options: [{
+        id: "vendor/model",
+        label: "Vendor Model",
+        localVm: expect.objectContaining({ status: "unsupported" }),
+      }],
     });
     await instance.adapter.sendTurn({
       threadId: "thread-1",
@@ -802,6 +873,123 @@ describe("OpenRouter runtime", () => {
     await instance.dispose();
   });
 
+  it("runs only through the injected turn bridge and returns text and images for continuation", async () => {
+    const bodies: any[] = [];
+    const instance = await instanceWith(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      if (bodies.length === 1) {
+        return chunkedSseResponse(singleToolCallSse('{"query":"harbor"}'));
+      }
+      return chunkedSseResponse([
+        'data: {"choices":[{"delta":{"content":"The Local VM returned a preview."},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}',
+        "data: [DONE]",
+        "",
+      ].join("\n"));
+    });
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    const controller = new AbortController();
+    const executed: string[] = [];
+    const bridge: ServerToolTurnBridge = {
+      run: async (_turnId, signal, operation) => {
+        expect(signal).not.toBe(controller.signal);
+        return operation({
+          tools: TOOL_DEFINITIONS,
+          signal,
+          execute: async (toolCall) => {
+            executed.push(toolCall.name);
+            return {
+              callId: toolCall.id,
+              content: [
+                { type: "text", text: "page ready" },
+                { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+              ],
+              isError: false,
+            };
+          },
+        });
+      },
+    };
+
+    await instance.adapter.sendTurn({
+      threadId: "thread-tools",
+      text: "Inspect",
+      model: "openai/gpt-5.6-terra",
+      integrations: { serverToolTurn: bridge },
+    });
+    await terminalEvent(events);
+
+    expect(executed).toEqual(["lookup"]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toMatchObject({
+      model: "openai/gpt-5.6-terra",
+      messages: [{ role: "user", content: "Inspect" }],
+      tools: [{ type: "function", function: { name: "lookup" } }],
+    });
+    expect(bodies[1].messages).toEqual([
+      { role: "user", content: "Inspect" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: "call_shape",
+          type: "function",
+          function: { name: "lookup", arguments: '{"query":"harbor"}' },
+        }],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_shape",
+        content: [
+          { type: "text", text: "page ready" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+        ],
+      },
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "item.started",
+      itemType: "tool",
+      title: "Local VM action",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "item.completed", itemType: "tool", ok: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn.completed", ok: true }));
+    await instance.dispose();
+  });
+
+  it("sends no tools after denial and rejects a fabricated follow-up tool call", async () => {
+    const bodies: any[] = [];
+    const instance = await instanceWith(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return chunkedSseResponse(singleToolCallSse('{"query":"again"}'));
+    });
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    const bridge: ServerToolTurnBridge = {
+      run: async (_turnId, signal, operation) => operation({
+        tools: TOOL_DEFINITIONS,
+        signal,
+        execute: async () => {
+          throw new ToolApprovalError("approval_denied", "private denial detail");
+        },
+      }),
+    };
+
+    await instance.adapter.sendTurn({
+      threadId: "thread-denied",
+      text: "Try",
+      model: "openai/gpt-5.6-terra",
+      integrations: { serverToolTurn: bridge },
+    });
+    await terminalEvent(events);
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toHaveProperty("tools");
+    expect(bodies[1]).not.toHaveProperty("tools");
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn.completed", ok: false }));
+    expect(JSON.stringify(events)).not.toContain("private denial detail");
+    await instance.dispose();
+  });
+
   it("surfaces mid-stream OpenRouter errors and redacts the key", async () => {
     const instance = await instanceWith(async () => new Response([
       'data: {"choices":[{"delta":{"content":"partial"}}]}',
@@ -830,6 +1018,7 @@ describe("OpenRouter runtime", () => {
 
     const { turnId } = await instance.adapter.sendTurn({ threadId: "thread-cancel", text: "Wait" });
     await instance.adapter.interruptTurn("thread-cancel", turnId);
+    expect(instance.adapter.hasSession("thread-cancel")).toBe(false);
     await terminalEvent(events);
 
     expect(events).not.toContainEqual(expect.objectContaining({ type: "runtime.error" }));

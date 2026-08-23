@@ -32,7 +32,9 @@ const DEFAULT_APPROVAL_TIMEOUT_MS = 30_000;
 const MAX_APPROVAL_TIMEOUT_MS = 5 * 60_000;
 const SAFE_CALL_ID = /^[\x21-\x7e]+$/;
 const SAFE_HMAC = /^[0-9a-f]{64}$/;
-const SENSITIVE_FIELD = /(?:api.?key|authorization|cookie|credential|password|secret|token)/i;
+const PROTECTED_INPUT = /(?:api.?key|authorization|cookie|credential|password|passcode|one.?time|\botp\b|\bmfa\b|secret|token|card.?number|\bcvv\b|\bssn\b)/i;
+const PROTECTED_VALUE = /(?:\bbearer\s+[a-z0-9._~+/=-]+|\bsk-[a-z0-9_-]+|\bgh[pousr]_[a-z0-9]+|\bAKIA[A-Z0-9]{12,}|\beyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+)/i;
+const TEXT_ENTRY_TOOL = /(?:^|[_-])(?:fill|input|paste|type|write)(?:$|[_-])/i;
 const HIGH_IMPACT = /(?:account|credential|delete|message|password|publish|purchase|secret|token)/i;
 const POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
@@ -436,12 +438,40 @@ function normalizeCall(
 }
 
 function boundedSummary(tool: string, argumentsValue: Record<string, unknown>): string {
-  const fields = Object.keys(argumentsValue).sort().slice(0, 20).map((field) =>
-    SENSITIVE_FIELD.test(field) ? "[sensitive field]" : field.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 64)
+  const entries = Object.entries(argumentsValue).sort(([left], [right]) => left.localeCompare(right)).slice(0, 20);
+  const textEntryTool = TEXT_ENTRY_TOOL.test(tool);
+  const protectedInput = entries.some(([field, value]) =>
+    PROTECTED_INPUT.test(field) ||
+    (typeof value === "string" && (PROTECTED_INPUT.test(value) || PROTECTED_VALUE.test(value)))
   );
-  let summary = fields.length
-    ? `Local VM tool ${tool} requests fields: ${fields.join(", ")}`
-    : `Local VM tool ${tool} requests no arguments`;
+  const safeValue = (value: unknown, sensitive: boolean, depth = 0): unknown => {
+    if (
+      typeof value === "string" &&
+      (sensitive || PROTECTED_INPUT.test(value) || PROTECTED_VALUE.test(value))
+    ) return "[redacted]";
+    if (typeof value === "string") {
+      return value.replace(/[\u0000-\u001f\u007f]/g, " ").normalize("NFC").slice(0, 120);
+    }
+    if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
+    if (depth >= 2) return "[nested value]";
+    if (Array.isArray(value)) return value.slice(0, 5).map((item) => safeValue(item, sensitive, depth + 1));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).slice(0, 10).map(([key, item]) => [
+        key.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 64),
+        safeValue(item, sensitive || PROTECTED_INPUT.test(key), depth + 1),
+      ]));
+    }
+    return "[unsupported value]";
+  };
+  const details = Object.fromEntries(entries.map(([field, value]) => {
+    const key = field.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 64);
+    const sensitive = PROTECTED_INPUT.test(field) ||
+      (typeof value === "string" && (textEntryTool || protectedInput || PROTECTED_VALUE.test(value)));
+    return [key, safeValue(value, sensitive)];
+  }));
+  let summary = entries.length
+    ? `Requested details: ${JSON.stringify(details)}`
+    : "Requested details: no arguments";
   while (byteLength(summary) > MAX_SUMMARY_BYTES) summary = summary.slice(0, -1);
   return summary;
 }

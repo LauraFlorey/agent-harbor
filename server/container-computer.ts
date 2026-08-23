@@ -26,6 +26,7 @@ export type CommandRunner = (
   command: string,
   args: string[],
   timeout?: number,
+  signal?: AbortSignal,
 ) => Promise<{ stdout: string }>;
 
 export const CUA_DRIVER_VERSION = "0.20.0";
@@ -146,9 +147,15 @@ LABEL ${MANAGED_LABEL}="1" \\
 `;
 }
 
-async function sh(cmd: string, args: string[], timeout = 8000): Promise<{ stdout: string }> {
+async function sh(
+  cmd: string,
+  args: string[],
+  timeout = 8000,
+  signal?: AbortSignal,
+): Promise<{ stdout: string }> {
   const { stdout } = await run(cmd, args, {
     timeout,
+    signal,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
     env: buildAgentEnvironment({ overrides: { PATH: augmentedPath() } }),
@@ -160,9 +167,10 @@ async function installed(
   cmd: string,
   runner: CommandRunner,
   platform: NodeJS.Platform,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   try {
-    await runner(platform === "win32" ? "where.exe" : "/usr/bin/which", [cmd], 4000);
+    await runner(platform === "win32" ? "where.exe" : "/usr/bin/which", [cmd], 4000, signal);
     return true;
   } catch {
     return false;
@@ -312,12 +320,13 @@ function cuaExecArgs(args: string[], interactive = false): string[] {
 export async function containerComputerStatus(
   runner: CommandRunner = sh,
   platform: NodeJS.Platform = process.platform,
+  signal?: AbortSignal,
 ): Promise<ContainerComputerStatus> {
   const status = emptyStatus(platform);
   // Apple's `container` CLI is macOS-only. Ignoring an unrelated executable
   // with that generic name off macOS avoids false detection.
   const candidates = RUNTIMES.filter((runtime) => runtime !== "container" || platform === "darwin");
-  const present = await Promise.all(candidates.map((runtime) => installed(runtime, runner, platform)));
+  const present = await Promise.all(candidates.map((runtime) => installed(runtime, runner, platform, signal)));
   status.available = candidates.filter((_, index) => present[index]);
 
   const healthy = await Promise.all(
@@ -327,6 +336,7 @@ export async function containerComputerStatus(
           candidate,
           candidate === "container" ? ["system", "status"] : ["info", "--format", "{{.ServerVersion}}"],
           10_000,
+          signal,
         );
         return true;
       } catch {
@@ -343,7 +353,7 @@ export async function containerComputerStatus(
   }
 
   try {
-    const { stdout } = await runner(status.runtime, ["image", "inspect", IMAGE]);
+    const { stdout } = await runner(status.runtime, ["image", "inspect", IMAGE], undefined, signal);
     const image = inspectedImage(stdout);
     status.image = imageLabelsMatch(image.labels);
     status.image_id = image.id;
@@ -352,7 +362,7 @@ export async function containerComputerStatus(
   }
 
   try {
-    const { stdout } = await runner(status.runtime, ["inspect", CONTAINER]);
+    const { stdout } = await runner(status.runtime, ["inspect", CONTAINER], undefined, signal);
     if (status.runtime === "container") {
       const inspected = JSON.parse(stdout) as Array<{
         configuration?: {
@@ -435,13 +445,14 @@ export async function containerComputerStatus(
   if (canProbe) {
     try {
       const expected = `cua-driver ${CUA_DRIVER_VERSION}`;
-      const version = await runner(status.runtime, cuaExecArgs(["--version"]), 8000);
+      const version = await runner(status.runtime, cuaExecArgs(["--version"]), 8000, signal);
       if (version.stdout.trim() !== expected) throw new Error(`expected ${expected}`);
-      await runner(status.runtime, cuaExecArgs(["status", "--socket", CUA_SOCKET]), 8000);
+      await runner(status.runtime, cuaExecArgs(["status", "--socket", CUA_SOCKET]), 8000, signal);
       const health = await runner(
         status.runtime,
         cuaExecArgs(["call", "health_report", "{}", "--socket", CUA_SOCKET]),
         15_000,
+        signal,
       );
       const report = JSON.parse(health.stdout) as { schema_version?: string; overall?: string; checks?: unknown[] };
       if (
@@ -464,11 +475,13 @@ export async function containerComputerStatus(
           readinessShot,
         ]),
         20_000,
+        signal,
       );
       const captured = await runner(
         status.runtime,
         ["exec", CONTAINER, "base64", "-w0", readinessShot],
         20_000,
+        signal,
       );
       if (!wholeScreenshot(Buffer.from(captured.stdout.trim(), "base64")).ok) {
         throw new Error("Cua Driver returned an incomplete readiness screenshot");
@@ -484,6 +497,7 @@ export async function containerComputerStatus(
           status.runtime,
           ["exec", CONTAINER, "tail", "-n", "4", "/var/log/supervisor/cua-driver.error.log"],
           4000,
+          signal,
         );
         status.desktop_error =
           errorLog.stdout.replace(/\s+/g, " ").trim().slice(0, 320) ||

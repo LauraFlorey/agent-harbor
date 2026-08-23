@@ -69,6 +69,12 @@ providers dimmed with the reason. Switch a bot's model mid-conversation.
 Computer access starts off. Explicitly give a bot a cloud desktop, the isolated Local VM, or this computer —
 with a live preview while it works and an "Open desktop" handoff when available.
 
+OpenRouter's experimental Local VM loop is separately off by default globally and per agent. Its initial
+allowlist is the exact `openai/gpt-5.6-terra` model, verified again against current account metadata for each
+direct-agent turn. Every other OpenRouter model remains available for ordinary text chat, and multi-agent
+rooms continue normally without this new tool loop. Each Local VM action requires **Allow once**; protected
+sign-in or CAPTCHA steps are completed manually in the visible VM, never through chat.
+
 <img src="docs/screenshots/computer-panel.png" alt="Computer panel with live screen preview" width="100%">
 
 </td>

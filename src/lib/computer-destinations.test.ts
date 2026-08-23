@@ -19,6 +19,13 @@ describe("computer destination compatibility", () => {
     expect(supportsComputerDestination(textOnly, "cloud")).toBe(false);
   });
 
+  it("lets an eligible server-owned turn reach only the Local VM without changing provider capability", () => {
+    expect(supportsComputerDestination(textOnly, "vm", { localVmServerEligible: true })).toBe(true);
+    expect(supportsComputerDestination(textOnly, "local", { localVmServerEligible: true })).toBe(false);
+    expect(supportsComputerDestination(textOnly, "cloud", { localVmServerEligible: true })).toBe(false);
+    expect(textOnly.computerUse).toBe("none");
+  });
+
   it("allows a local MCP engine to use the Local VM, host, or cloud bridge", () => {
     expect(supportsComputerDestination(localMcp, "vm")).toBe(true);
     expect(supportsComputerDestination(localMcp, "local")).toBe(true);

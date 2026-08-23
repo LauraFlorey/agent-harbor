@@ -80,6 +80,7 @@ beforeAll(async () => {
       OMB_WEBHOOK_PORT: String(WEBHOOK_PORT),
       OMB_BOX_API: `http://127.0.0.1:${boxStubPort}`,
       OMB_STATIC_DIR: staticDir,
+      OMB_SKIP_LOCAL_VM_STARTUP_PROBE: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -214,15 +215,29 @@ describe("harness HTTP API", () => {
     const created = await api("POST", "/api/bots");
     expect(created.status).toBe(201);
     const bot = created.body.bot;
-    expect(bot).toMatchObject({ computer: "off", hostAccess: false });
+    expect(bot).toMatchObject({ computer: "off", openrouterLocalVm: false, hostAccess: false });
 
-    const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true, hostAccess: true });
+    const patched = await api("PATCH", `/api/bots/${bot.id}`, {
+      name: "Renamed",
+      pinned: true,
+      hostAccess: true,
+      openrouterLocalVm: true,
+    });
     expect(patched.status).toBe(200);
-    expect(patched.body.bot).toMatchObject({ name: "Renamed", pinned: true, hostAccess: true });
+    expect(patched.body.bot).toMatchObject({
+      name: "Renamed",
+      pinned: true,
+      hostAccess: true,
+      openrouterLocalVm: true,
+    });
 
     const invalidHostAccess = await api("PATCH", `/api/bots/${bot.id}`, { hostAccess: "yes" });
     expect(invalidHostAccess.status).toBe(400);
     expect(invalidHostAccess.body.error).toContain("hostAccess");
+
+    const invalidLocalVm = await api("PATCH", `/api/bots/${bot.id}`, { openrouterLocalVm: "yes" });
+    expect(invalidLocalVm.status).toBe(400);
+    expect(invalidLocalVm.body.error).toContain("openrouterLocalVm");
 
     const missing = await api("PATCH", "/api/bots/does-not-exist", { name: "x" });
     expect(missing.status).toBe(404);
@@ -560,13 +575,29 @@ describe("harness HTTP API", () => {
   it("stores OpenRouter credentials as a configured-only status", async () => {
     const put = await api("PUT", "/api/config", { openrouter: { apiKey: "openrouter-secret" } });
     expect(put.status).toBe(200);
-    expect(put.body.openrouter).toEqual({ configured: true });
+    expect(put.body.openrouter).toEqual({ configured: true, localVmEnabled: false });
     expect(JSON.stringify(put.body)).not.toContain("openrouter-secret");
 
     const after = await api("GET", "/api/config");
-    expect(after.body.openrouter).toEqual({ configured: true });
+    expect(after.body.openrouter).toEqual({ configured: true, localVmEnabled: false });
     expect(JSON.stringify(after.body)).not.toContain("openrouter-secret");
     expect(readFileSync(join(home, ".openmausbot", "config.json"), "utf8")).not.toContain("openrouter-secret");
+  });
+
+  it("keeps the OpenRouter Local VM kill switch default-off and validates explicit changes", async () => {
+    const before = await api("GET", "/api/config");
+    expect(before.body.openrouter.localVmEnabled).toBe(false);
+
+    const enabled = await api("PATCH", "/api/config", { openrouter: { localVmEnabled: true } });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.openrouter).toMatchObject({ localVmEnabled: true });
+    const disabled = await api("PATCH", "/api/config", { openrouter: { localVmEnabled: false } });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.openrouter).toMatchObject({ localVmEnabled: false });
+
+    const malformed = await api("PATCH", "/api/config", { openrouter: { localVmEnabled: "yes" } });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toContain("openrouter.localVmEnabled");
   });
 
   it("rejects a malformed OpenRouter API key patch", async () => {

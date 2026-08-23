@@ -104,6 +104,7 @@ posixOnly("unattended turns keep asking", () => {
         HOME: home,
         USERPROFILE: home,
         OMB_PORT: String(PORT),
+        OMB_SKIP_LOCAL_VM_STARTUP_PROBE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

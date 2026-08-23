@@ -20,6 +20,7 @@ import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib
 import { currentCall } from "@/lib/call";
 import { showNotification } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
+import { nextLocalVmPreviewNonce } from "@/lib/local-vm-preview";
 
 export type { MausColor } from "@/lib/mascot";
 
@@ -37,6 +38,12 @@ export interface OptionCardData {
   held?: string;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  approvalKind?: "openrouter-local-vm";
+  modelLabel?: string;
+  destination?: "Local VM";
+  consequential?: boolean;
+  expiresAt?: number;
+  oneAttempt?: boolean;
 }
 
 export interface Message {
@@ -115,6 +122,8 @@ export interface Bot {
   modelSelection: ModelSelection;
   /** Where this bot's computer runs; unset legacy values are treated as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Separate, default-off consent for OpenRouter to use the Local VM. */
+  openrouterLocalVm?: boolean;
   /** Explicit opt-in to start local provider CLIs in the user's home folder. */
   hostAccess?: boolean;
   /** auto mode: the bot approves its own tool permissions */
@@ -167,7 +176,7 @@ export function messageVersions(bot: Bot, message: Message): Message[] {
 /** GET /api/config — configured flags only; secrets are never echoed. */
 export interface ConfigStatus {
   xai?: { configured: boolean };
-  openrouter?: { configured: boolean };
+  openrouter?: { configured: boolean; localVmEnabled: boolean };
   composio: { configured: boolean; apiKeyConfigured?: boolean };
   box: { configured: boolean };
   opencodeGo?: { configured: boolean };
@@ -200,7 +209,14 @@ export interface InstanceInfo {
     authenticated?: boolean;
     version?: string | null;
   };
-  models: { default: string; options: Array<{ id: string; label: string }> };
+  models: {
+    default: string;
+    options: Array<{
+      id: string;
+      label: string;
+      localVm?: { status: "verified" | "unsupported" | "unknown"; reason: string; manifestRevision?: string };
+    }>;
+  };
   capabilities?: {
     contextMode?: "resume-cursor" | "transcript-replay" | "provider-managed";
     executionMode?: "local-process" | "remote-computer";
@@ -233,6 +249,8 @@ interface AppState {
   appSettingsSection: AppSettingsSection;
   /** latest live frame of a bot's computer, per botId */
   screens: Record<string, { png: string; mime: string }>;
+  localVmTurns: Record<string, "preparing" | "contended" | "working" | "waiting-approval" | "cleaning" | "failed" | "metadata-unverified" | "idle">;
+  localVmPreviewNonce: Record<string, number>;
   /** bots whose cloud computer is being provisioned */
   provisioning: Record<string, boolean>;
   connected: boolean;
@@ -307,6 +325,8 @@ type Action =
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
   | { type: "screenFrame"; botId: string; png: string; mime: string }
+  | { type: "localVmTurnState"; botId: string; state: AppState["localVmTurns"][string] }
+  | { type: "localVmPreview"; botId: string }
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "setModel"; botId: string; selection: ModelSelection; computer?: "off" }
   | { type: "interrupt"; botId: string }
@@ -327,6 +347,7 @@ type Action =
           | "description"
           | "notifications"
           | "computer"
+          | "openrouterLocalVm"
           | "color"
           | "mascotExpression"
           | "autoApprove"
@@ -609,6 +630,16 @@ function reducer(state: AppState, action: Action): AppState {
         screens: { ...state.screens, [action.botId]: { png: action.png, mime: action.mime } },
         provisioning: { ...state.provisioning, [action.botId]: false },
       };
+    case "localVmTurnState":
+      return { ...state, localVmTurns: { ...state.localVmTurns, [action.botId]: action.state } };
+    case "localVmPreview":
+      return {
+        ...state,
+        localVmPreviewNonce: {
+          ...state.localVmPreviewNonce,
+          [action.botId]: nextLocalVmPreviewNonce(state.localVmPreviewNonce[action.botId]),
+        },
+      };
     case "provisioning":
       return {
         ...(action.on ? withMascotMotion(state, action.botId, "launch") : state),
@@ -771,6 +802,8 @@ const initialState: AppState = {
   appSettingsOpen: false,
   appSettingsSection: "general",
   screens: {},
+  localVmTurns: {},
+  localVmPreviewNonce: {},
   provisioning: {},
   connected: false,
   error: null,
@@ -1299,6 +1332,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "screen":
           rawDispatch({ type: "screenFrame", botId: frame.botId, png: frame.png, mime: frame.mime ?? "image/png" });
           break;
+        case "local-vm-turn":
+          rawDispatch({ type: "localVmTurnState", botId: frame.botId, state: frame.state });
+          break;
+        case "local-vm-preview":
+          rawDispatch({ type: "localVmPreview", botId: frame.botId });
+          break;
         case "computer":
           rawDispatch({ type: "provisioning", botId: frame.botId, on: frame.state === "provisioning" });
           break;
@@ -1312,6 +1351,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: "configStatus",
             config: {
               xai: frame.xai,
+              openrouter: frame.openrouter,
               composio: frame.composio,
               box: frame.box,
               tts: frame.tts,

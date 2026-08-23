@@ -100,6 +100,27 @@ afterEach(async () => {
 });
 
 describe("Local VM Story 5 turn coordinator", () => {
+  it("resolves a deferred MCP endpoint only after the one authoritative lease is held", async () => {
+    const fixture = await fakeEndpoint();
+    const lease = new LocalVmLease(5_000);
+    let factoryCalls = 0;
+    await runLocalVmToolTurn({
+      lease,
+      binding: binding("deferred-endpoint"),
+      endpoint: async () => {
+        factoryCalls += 1;
+        expect(lease.turnLifecycleResources().active).toBe(1);
+        return fixture.endpoint;
+      },
+    }, async ({ tools }) => {
+      expect(tools.length).toBeGreaterThan(0);
+    });
+
+    expect(factoryCalls).toBe(1);
+    expect(lease.turnLifecycleResources()).toEqual({ active: 0, listeners: 0, timers: 0 });
+    await assertReleased(fixture.dir);
+  });
+
   it("owns the exact lease, applies the approval gate, emits redacted telemetry, and releases everything", async () => {
     const fixture = await fakeEndpoint();
     const lease = new LocalVmLease(5_000);
@@ -301,6 +322,33 @@ describe("Local VM Story 5 turn coordinator", () => {
   });
 
   it("propagates active and pre-cancellation through approval, MCP, and stubborn process cleanup", async () => {
+    const deferredLease = new LocalVmLease(5_000);
+    const deferredController = new AbortController();
+    let deferredStarted!: () => void;
+    const deferredReady = new Promise<void>((resolve) => {
+      deferredStarted = resolve;
+    });
+    let endpointAborted = false;
+    const deferred = runLocalVmToolTurn({
+      lease: deferredLease,
+      binding: binding("deferred-cancel"),
+      signal: deferredController.signal,
+      endpoint: async (signal) => {
+        deferredStarted();
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            endpointAborted = true;
+            reject(signal.reason);
+          }, { once: true });
+        });
+      },
+    }, async () => undefined);
+    await deferredReady;
+    deferredController.abort();
+    await expect(deferred).rejects.toMatchObject({ code: "aborted" });
+    expect(endpointAborted).toBe(true);
+    expect(deferredLease.turnLifecycleResources()).toEqual({ active: 0, listeners: 0, timers: 0 });
+
     const preCancelled = await fakeEndpoint();
     const pre = new AbortController();
     pre.abort();

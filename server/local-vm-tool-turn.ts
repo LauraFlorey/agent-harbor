@@ -24,7 +24,9 @@ import {
 export interface LocalVmToolTurnOptions {
   readonly lease: LocalVmLease;
   readonly binding: LocalVmTurnBinding;
-  readonly endpoint: LocalVmMcpEndpoint;
+  /** Resolved only after the exclusive turn lease is held, preventing Local
+   * VM lifecycle operations from racing endpoint inspection and child spawn. */
+  readonly endpoint: LocalVmMcpEndpoint | ((signal: AbortSignal) => Promise<LocalVmMcpEndpoint>);
   readonly approval?: ApplicationToolApprovalChannel;
   readonly limits?: Partial<LocalVmToolTurnLimits>;
   readonly signal?: AbortSignal;
@@ -119,7 +121,10 @@ export async function runLocalVmToolTurn<T>(
     };
     leaseSignal.addEventListener("abort", leaseAbort, { once: true });
 
-    client = await TurnScopedMcpClient.connect(options.endpoint, {
+    const endpoint = typeof options.endpoint === "function"
+      ? await raceAbort(owner, options.endpoint(owner.signal))
+      : options.endpoint;
+    client = await TurnScopedMcpClient.connect(endpoint, {
       signal: owner.signal,
       timeoutMs: owner.limits.mcpRequestTimeoutMs,
       turnControl: owner.control,

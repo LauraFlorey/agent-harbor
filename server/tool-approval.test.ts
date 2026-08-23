@@ -215,7 +215,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
       const [request] = await opened(app.events);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect((await readState(dir)).methods).not.toContain("tools/call");
-      expect(request?.summary).toContain("[sensitive field]");
+      expect(request?.summary).toContain("[redacted]");
       expect(request?.consequential).toBe(true);
       expect(JSON.stringify(app.events)).not.toContain(secret);
       expect(JSON.stringify(app.events)).not.toContain("execute immediately");
@@ -226,6 +226,62 @@ describe("turn-scoped Local VM tool approval gate", () => {
       expect(JSON.stringify(await readState(dir))).not.toContain(secret);
     });
     await assertReleased(dir);
+  });
+
+  it("shows bounded safe details while redacting nested protected input", async () => {
+    const { dir, endpoint } = await fakeEndpoint();
+    const app = applicationChannel();
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
+      const requests = client.createToolApprovalSession({ turnId: "turn-safe-summary", approval: app.channel });
+      const execution = requests.execute({
+        id: "call-safe-summary",
+        name: "structured_input",
+        arguments: {
+          payload: {
+            tags: ["Account settings", "OTP 938201"],
+            enabled: true,
+          },
+        },
+      });
+      const [request] = await opened(app.events);
+      expect(request.summary).toContain("Account settings");
+      expect(request.summary).toContain('"enabled":true');
+      expect(request.summary).not.toContain("938201");
+      expect(request.summary).not.toContain("OTP");
+      expect(approve(app.decisions, request.challenge)).toBe(true);
+      await execution;
+    });
+    await assertReleased(dir);
+  });
+
+  it("redacts arbitrary typed values and secret-shaped values from approval summaries", async () => {
+    const events: ToolApprovalEvent[] = [];
+    const approval = createApplicationToolApprovalChannel((event) => events.push(event));
+    const requests = createApprovedToolRequests([{
+      name: "computer_type",
+      inputSchema: {
+        type: "object",
+        properties: { text: { type: "string" }, label: { type: "string" } },
+        required: ["text", "label"],
+        additionalProperties: false,
+      },
+    }], async (call) => ({ callId: call.id, content: [], isError: false }), {
+      turnId: "turn-redacted-typed-value",
+      approval: approval.channel,
+    });
+
+    const execution = requests.execute({
+      id: "call-redacted-typed-value",
+      name: "computer_type",
+      arguments: { text: "private value 4829", label: "sk-examplecredential" },
+    });
+    const [request] = await opened(events);
+    expect(request.summary).not.toContain("private value 4829");
+    expect(request.summary).not.toContain("sk-examplecredential");
+    expect(request.summary.match(/\[redacted\]/g)?.length).toBe(2);
+    approval.decisions.resolve({ challenge: request.challenge, behavior: "deny" });
+    await expect(execution).rejects.toMatchObject({ code: "approval_denied" });
+    requests.close();
   });
 
   it("uses unlinkable per-turn capabilities and rejects cloned approval channels", async () => {

@@ -71,6 +71,15 @@ export interface StdioMcpEndpoint {
   env: Record<string, string>;
 }
 
+/** Per-model evidence for the narrowly reviewed server-owned Local VM loop.
+ * This is catalog information only: turn-time feature, agent, conversation,
+ * destination, and runtime checks remain separate application authorities. */
+export interface LocalVmModelCapability {
+  status: "verified" | "unsupported" | "unknown";
+  reason: string;
+  manifestRevision?: string;
+}
+
 // ── canonical runtime events ───────────────────────────────────────────
 // Subset of upstream's 49-member ProviderRuntimeEvent union — the ~12 types
 // the recipe says to start with, sharing one base. `raw` carries the
@@ -150,6 +159,11 @@ export interface SendTurnInput {
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Harness-owned one-turn bridge for an already authorized isolated
+     * Local VM. The provider can use discovered tools through the returned
+     * approval-gated context, but cannot inspect, select, or replace the
+     * destination or resolve its own approvals. */
+    serverToolTurn?: ServerToolTurnBridge;
   };
   cwd?: string;
 }
@@ -181,6 +195,20 @@ export interface ProviderToolResult {
   callId: string;
   content: ProviderToolResultContent[];
   isError: boolean;
+}
+
+export interface ServerToolTurnContext {
+  readonly tools: readonly ProviderToolDefinition[];
+  readonly signal: AbortSignal;
+  execute(call: ProviderToolCall): Promise<ProviderToolResult>;
+}
+
+export interface ServerToolTurnBridge {
+  run<T>(
+    turnId: TurnId,
+    signal: AbortSignal,
+    operation: (context: ServerToolTurnContext) => Promise<T>,
+  ): Promise<T>;
 }
 
 export type ComputerUseMode = "none" | "mcp" | "native" | "server";
@@ -276,7 +304,7 @@ export interface EngineInstall {
 // a rejection to an unavailable shadow snapshot.
 export interface ModelCatalog {
   default: string;
-  options: Array<{ id: string; label: string }>;
+  options: Array<{ id: string; label: string; localVm?: LocalVmModelCapability }>;
 }
 
 export interface DriverCreateInput<Config> {
@@ -294,7 +322,7 @@ export interface ProviderInstance {
   readonly enabled: boolean;
   readonly models: ModelCatalog;
   /** Refresh a live catalog without recreating the provider instance. */
-  readonly refreshModels?: () => Promise<void>;
+  readonly refreshModels?: (signal?: AbortSignal) => Promise<void>;
   readonly adapter: ProviderAdapter;
   snapshot(): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */

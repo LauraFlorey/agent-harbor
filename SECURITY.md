@@ -28,3 +28,21 @@ before sharing exploit details.
   for operations outside the working directory; a working directory alone is not an OS sandbox.
 - Spawning must never route user-influenced strings through a shell. Report any `shell: true` /
   `cmd.exe` string-building you find.
+- The experimental OpenRouter Local VM loop is a narrow application-owned
+  exception to OpenRouter's provider-wide `computerUse: "none"` declaration.
+  It requires both default-off owner controls, the exact source-controlled
+  `openai/gpt-5.6-terra` ID, current account metadata, a direct conversation,
+  an explicit Local VM destination, and a ready isolated VM. Metadata can
+  revoke but never grant authority beyond that exact manifest entry.
+- OpenRouter Local VM calls require a fresh application-owned **Allow once**
+  decision for every attempted execution. Auto mode, remembered permissions,
+  Always allow, prompts, provider responses, MCP servers, and cloned approval
+  data are not approval authorities. Approval displays and observability must
+  remain bounded and must redact protected inputs, credentials, raw call IDs,
+  endpoint details, provider bodies, and tool arguments/results.
+- The OpenRouter Local VM turn owns one exclusive lease through provider
+  streaming, approvals, MCP execution, continuation, child-process cleanup,
+  and release. It must never route to the host, cloud computer, connected apps,
+  files, dweb, peer agents, a host working directory, or a fallback destination.
+  Disabling the global switch must cancel and drain active turns without
+  changing stored agent, model, room, or ordinary text-chat settings.

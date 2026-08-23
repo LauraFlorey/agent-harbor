@@ -92,6 +92,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
         USERPROFILE: home,
         OMB_SECRET_STORE: "file",
         OMB_PORT: String(PORT),
+        OMB_SKIP_LOCAL_VM_STARTUP_PROBE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

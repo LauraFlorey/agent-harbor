@@ -10,11 +10,17 @@ import type {
   ProviderSnapshot,
   ProviderToolCall,
   ProviderToolDefinition,
+  ProviderToolResult,
   RuntimeEvent,
   RuntimeEventListener,
   SendTurnInput,
 } from "../contracts.ts";
 import { newEventId, newId, ProviderError } from "../contracts.ts";
+import { openRouterLocalVmModelCapability } from "../openrouter-local-vm.ts";
+import {
+  runProviderToolLoop,
+  type ProviderLoopMessage,
+} from "../provider-tool-loop.ts";
 import { appendNative } from "./native.ts";
 
 const DRIVER_KIND = "openrouter";
@@ -30,10 +36,15 @@ const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024;
 const MAX_TOTAL_TOOL_ARGUMENT_BYTES = 1024 * 1024;
 const MAX_TOOL_DEFINITIONS_BYTES = 1024 * 1024;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
+const MAX_CATALOG_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_JSON_SERIALIZATION_DEPTH = 64;
 const STATIC_MODELS: ModelCatalog = {
   default: DEFAULT_MODEL,
-  options: [{ id: DEFAULT_MODEL, label: "Auto (OpenRouter)" }],
+  options: [{
+    id: DEFAULT_MODEL,
+    label: "Auto (OpenRouter)",
+    localVm: openRouterLocalVmModelCapability(DEFAULT_MODEL, { id: DEFAULT_MODEL }),
+  }],
 };
 
 export interface OpenRouterConfig {
@@ -46,10 +57,10 @@ interface OpenRouterErrorBody {
   error?: { code?: number | string; message?: string; metadata?: unknown };
 }
 
-interface OpenRouterMessage {
-  role: string;
-  content: string;
-}
+type OpenRouterMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: Array<Record<string, unknown>> }
+  | { role: "tool"; tool_call_id: string; content: string | Array<Record<string, unknown>> };
 
 export interface OpenRouterStreamRequest {
   url: string;
@@ -142,10 +153,48 @@ function modelId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z0-9][a-z0-9._:/-]{0,199}$/i.test(value);
 }
 
-function modelLabel(record: Record<string, unknown>, id: string): string {
+function modelLabel(record: Record<string, unknown>, id: string, apiKey: string): string {
   const name = record.name;
-  if (typeof name === "string" && name.trim()) return name.trim().slice(0, 120);
+  if (typeof name === "string" && name.trim()) {
+    const bounded = name.slice(0, 512);
+    return (apiKey ? bounded.replaceAll(apiKey, "[redacted]") : bounded)
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .normalize("NFC")
+      .trim()
+      .slice(0, 120);
+  }
   return id;
+}
+
+async function catalogPayload(response: Response): Promise<{ data?: unknown }> {
+  if (!response.body) throw new ProviderError("model_catalog_outage", "OpenRouter returned an empty model catalog");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CATALOG_BODY_BYTES) {
+        await reader.cancel();
+        throw new ProviderError("model_catalog_outage", "OpenRouter model catalog exceeded the safety limit");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new ProviderError("model_catalog_outage", "OpenRouter returned an invalid model catalog");
+    }
+    return parsed as { data?: unknown };
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    throw new ProviderError("model_catalog_outage", "OpenRouter returned an invalid model catalog");
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 /** Fetch the models permitted by this account's preferences and guardrails. */
@@ -153,9 +202,22 @@ export async function fetchOpenRouterModels(
   apiKey: string,
   url = DEFAULT_URL,
   fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ModelCatalog> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let abortKind: "caller" | "timeout" | null = signal?.aborted ? "caller" : null;
+  const forwardAbort = () => {
+    if (abortKind) return;
+    abortKind = "caller";
+    controller.abort(signal?.reason);
+  };
+  signal?.addEventListener("abort", forwardAbort, { once: true });
+  if (abortKind === "caller") controller.abort(signal?.reason);
+  const timeout = setTimeout(() => {
+    if (abortKind) return;
+    abortKind = "timeout";
+    controller.abort();
+  }, 10_000);
   timeout.unref?.();
   try {
     const response = await fetcher(`${url.replace(/\/+$/, "")}/models/user`, {
@@ -163,21 +225,35 @@ export async function fetchOpenRouterModels(
       signal: controller.signal,
     });
     if (!response.ok) throw await responseError(response, apiKey, true);
-    const payload = await response.json() as { data?: unknown };
+    const payload = await catalogPayload(response);
     const records = Array.isArray(payload.data) ? payload.data : [];
     const seen = new Set<string>();
+    const conflicting = new Set<string>();
     const options = records.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
       const record = item as Record<string, unknown>;
-      if (!modelId(record.id) || seen.has(record.id)) return [];
+      if (!modelId(record.id) || (apiKey && record.id.includes(apiKey))) return [];
+      if (seen.has(record.id)) {
+        conflicting.add(record.id);
+        return [];
+      }
       const architecture = record.architecture;
       const outputModalities = architecture && typeof architecture === "object"
         ? (architecture as { output_modalities?: unknown }).output_modalities
         : undefined;
       if (Array.isArray(outputModalities) && !outputModalities.includes("text")) return [];
       seen.add(record.id);
-      return [{ id: record.id, label: modelLabel(record, record.id) }];
+      return [{
+        id: record.id,
+        label: modelLabel(record, record.id, apiKey),
+        localVm: openRouterLocalVmModelCapability(record.id, record),
+      }];
     });
+    for (const option of options) {
+      if (conflicting.has(option.id)) {
+        option.localVm = openRouterLocalVmModelCapability(option.id, null);
+      }
+    }
     if (!options.length) {
       throw new ProviderError("model_catalog_outage", "OpenRouter returned no text models for this account");
     }
@@ -187,6 +263,7 @@ export async function fetchOpenRouterModels(
       options,
     };
   } catch (error) {
+    if (abortKind === "caller") throw new DOMException("Aborted", "AbortError");
     if (error instanceof ProviderError) throw error;
     const message = error instanceof Error && error.name === "AbortError"
       ? "OpenRouter model discovery timed out"
@@ -194,6 +271,7 @@ export async function fetchOpenRouterModels(
     throw new ProviderError("model_catalog_outage", message, { cause: error });
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -336,6 +414,46 @@ function openRouterTools(tools: readonly ProviderToolDefinition[]): Array<Record
   }));
   assertBoundedJson(mapped, MAX_TOOL_DEFINITIONS_BYTES);
   return mapped;
+}
+
+function openRouterToolResult(result: ProviderToolResult): OpenRouterMessage {
+  const parts = result.content.map((item): Record<string, unknown> => {
+    if (item.type === "text") return { type: "text", text: item.text };
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(item.data)) {
+      return { type: "text", text: "Local VM returned an invalid image result." };
+    }
+    return {
+      type: "image_url",
+      image_url: { url: `data:${item.mimeType};base64,${item.data}` },
+    };
+  });
+  return {
+    role: "tool",
+    tool_call_id: result.callId,
+    content: parts,
+  };
+}
+
+function openRouterLoopMessages(messages: readonly ProviderLoopMessage[]): OpenRouterMessage[] {
+  return messages.map((message): OpenRouterMessage => {
+    if (message.role === "tool") return openRouterToolResult(message.result);
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content,
+        ...(message.toolCalls?.length
+          ? {
+              tool_calls: message.toolCalls.map((call) => ({
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+              })),
+            }
+          : {}),
+      };
+    }
+    return message;
+  });
 }
 
 /**
@@ -658,7 +776,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
       const apiKey = input.environment[config.apiKeyEnv] ?? process.env[config.apiKeyEnv] ?? "";
       const models: ModelCatalog = structuredClone(STATIC_MODELS);
       const listeners = new Set<RuntimeEventListener>();
-      const active = new Map<string, { abort: AbortController; turnId: string }>();
+      const active = new Map<string, { abort: AbortController; turnId: string; done: Promise<void> }>();
 
       const emit = (event: RuntimeEvent) => {
         for (const listener of [...listeners]) listener(event);
@@ -673,7 +791,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
       });
 
       const complete = async (
-        messages: Array<{ role: string; content: string }>,
+        messages: OpenRouterMessage[],
         model: string,
         opts: { stream: boolean; signal?: AbortSignal; onDelta?: (delta: string) => void },
       ): Promise<{ text: string; usage: { input: number; output: number } | null }> => {
@@ -716,38 +834,110 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
         const turnId = newId();
         const abort = new AbortController();
-        active.set(threadId, { abort, turnId });
+        let markDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+          markDone = resolve;
+        });
+        active.set(threadId, { abort, turnId, done });
         const messages = [
           ...(turn.system ? [{ role: "system", content: turn.system }] : []),
           ...(turn.transcript ?? []).map((message) => ({ role: message.role, content: message.text })),
           { role: "user", content: turn.text },
-        ];
+        ] as OpenRouterMessage[];
         const selectedModel = turn.model || models.default;
-        appendNative(threadId, {
-          dir: "out",
-          source: "openrouter.chat.completions",
-          msg: { model: selectedModel, messages },
-        });
+        const serverToolTurn = turn.integrations?.serverToolTurn;
+        try {
+          appendNative(threadId, serverToolTurn
+            ? {
+                dir: "out",
+                source: "openrouter.chat.completions",
+                msg: { model: selectedModel, mode: "local-vm", messageCount: messages.length },
+              }
+            : {
+                dir: "out",
+                source: "openrouter.chat.completions",
+                msg: { model: selectedModel, messages },
+              });
 
-        emit({ ...base(threadId, turnId), type: "turn.started" });
-        emit({ ...base(threadId, turnId), type: "session.started", sessionId: null, model: selectedModel });
+          emit({ ...base(threadId, turnId), type: "turn.started" });
+          emit({ ...base(threadId, turnId), type: "session.started", sessionId: null, model: selectedModel });
+        } catch (error) {
+          active.delete(threadId);
+          markDone();
+          throw error;
+        }
 
         void (async () => {
           try {
-            const { text, usage } = await complete(messages, selectedModel, {
-              stream: true,
-              signal: abort.signal,
-              onDelta: (delta) => emit({
-                ...base(threadId, turnId),
-                type: "content.delta",
-                streamKind: "assistant_text",
-                delta,
-              }),
+            const delta = (value: string) => emit({
+              ...base(threadId, turnId),
+              type: "content.delta",
+              streamKind: "assistant_text",
+              delta: value,
             });
+            let text: string;
+            let usage: { input: number; output: number } | null;
+            let toolCallCount = 0;
+            if (serverToolTurn) {
+              const result = await serverToolTurn.run(turnId, abort.signal, async (context) => {
+                const itemIds = new Map<string, string>();
+                return runProviderToolLoop({
+                  messages: messages as ProviderLoopMessage[],
+                  tools: context.tools,
+                  signal: context.signal,
+                  complete: async ({ messages: loopMessages, tools, signal, onTextDelta }) =>
+                    streamOpenRouterCompletion({
+                      url: config.url,
+                      apiKey,
+                      model: selectedModel,
+                      messages: openRouterLoopMessages(loopMessages),
+                      ...(tools ? { tools } : {}),
+                      signal,
+                      onTextDelta,
+                    }, fetcher),
+                  execute: (call) => context.execute(call),
+                  onTextDelta: delta,
+                  onToolStarted: (call) => {
+                    toolCallCount += 1;
+                    const itemId = newId();
+                    itemIds.set(call.id, itemId);
+                    emit({
+                      ...base(threadId, turnId),
+                      type: "item.started",
+                      itemType: "tool",
+                      itemId,
+                      title: "Local VM action",
+                    });
+                  },
+                  onToolCompleted: (call, ok) => {
+                    const itemId = itemIds.get(call.id);
+                    emit({
+                      ...base(threadId, turnId),
+                      type: "item.completed",
+                      itemType: "tool",
+                      itemId,
+                      ok,
+                    });
+                  },
+                });
+              });
+              text = result.text;
+              usage = result.usage;
+            } else {
+              const result = await complete(messages, selectedModel, {
+                stream: true,
+                signal: abort.signal,
+                onDelta: delta,
+              });
+              text = result.text;
+              usage = result.usage;
+            }
             appendNative(threadId, {
               dir: "in",
               source: "openrouter.chat.completions",
-              msg: { text, usage },
+              msg: serverToolTurn
+                ? { mode: "local-vm", textBytes: Buffer.byteLength(text), toolCallCount, usage }
+                : { text, usage },
             });
             if (text.trim()) emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text });
             if (usage) emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...usage });
@@ -769,6 +959,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             });
           } finally {
             active.delete(threadId);
+            markDone();
           }
         })();
         return { turnId };
@@ -784,9 +975,9 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
         displayName: input.displayName,
         enabled: input.enabled,
         models,
-        refreshModels: async () => {
+        refreshModels: async (signal) => {
           if (!apiKey) return;
-          const fresh = await fetchOpenRouterModels(apiKey, config.url, fetcher);
+          const fresh = await fetchOpenRouterModels(apiKey, config.url, fetcher, signal);
           models.default = fresh.default;
           models.options.splice(0, models.options.length, ...fresh.options);
         },
@@ -800,13 +991,20 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             computerUse: "none",
           },
           sendTurn,
-          interruptTurn: async (threadId) => active.get(threadId)?.abort.abort(),
+          interruptTurn: async (threadId) => {
+            const turn = active.get(threadId);
+            if (!turn) return;
+            turn.abort.abort();
+            await turn.done;
+          },
           respondToRequest: async () => {
             throw new Error("OpenRouter driver has no pending asks");
           },
           hasSession: (threadId) => active.has(threadId),
           stopAll: async () => {
-            for (const { abort } of active.values()) abort.abort();
+            const turns = [...active.values()];
+            for (const { abort } of turns) abort.abort();
+            await Promise.allSettled(turns.map((turn) => turn.done));
           },
           onEvent: (listener) => {
             listeners.add(listener);
@@ -819,7 +1017,9 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
           return text;
         },
         dispose: async () => {
-          for (const { abort } of active.values()) abort.abort();
+          const turns = [...active.values()];
+          for (const { abort } of turns) abort.abort();
+          await Promise.allSettled(turns.map((turn) => turn.done));
           active.clear();
           listeners.clear();
         },

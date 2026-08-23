@@ -18,7 +18,9 @@ can merely describe intended clicks does not meet the outcome.
 - A provider-neutral, server-owned tool loop for API-backed model engines.
 - OpenRouter Chat Completions tool declarations and streamed tool calls.
 - Cua Driver tools from the explicitly selected Local VM.
-- Existing Agent Harbor approval cards and per-bot remembered approvals.
+- Existing Agent Harbor approval-card surface with a fresh application-owned
+  Allow once decision for every OpenRouter Local VM call. Remembered approvals
+  and Auto mode do not apply to this path.
 - Strict Local VM lease, cancellation, timeout, and turn limits.
 - Activity chips, screen refreshes, native-event redaction, tests, and setup
   documentation.
@@ -46,8 +48,11 @@ later sprint after the Local VM boundary is proven.
 
 The harness remains the authority for destination selection and Local VM
 leasing. The OpenRouter driver must never launch or select a computer itself.
-It receives a turn-scoped tool endpoint only after `server/index.ts` validates
-the bot's explicit destination and claims the shared Local VM lease.
+`server/index.ts` validates the exact feature, agent, model, metadata,
+conversation, and destination gates and passes an application-owned turn
+bridge. The Story 5 coordinator then acquires the one authoritative shared
+Local VM lease before resolving the endpoint or spawning the turn-scoped MCP
+child. There is no separate legacy lease on this path.
 
 The provider-neutral loop owns:
 
@@ -124,22 +129,37 @@ the one-bot-at-a-time fence hold.
 
 ### Story 6 — Product integration and documentation
 
-- Advertise Local VM compatibility only for OpenRouter models whose catalog
-  metadata indicates tool support, with a safe fallback when metadata is
-  absent.
-- Update the computer panel, model picker, and OpenRouter documentation.
-- Add a plain-language note that website credentials are entered manually in
-  the Local VM and remain outside prompts.
+- Keep the feature globally off and independently off for every agent until
+  the owner explicitly enables both controls.
+- Authorize only the exact source-controlled `openai/gpt-5.6-terra` ID, and
+  require the current account catalog to confirm text/image input, text output,
+  and tool support on every direct-agent turn. Catalog metadata can revoke
+  eligibility but cannot add models.
+- Keep every other account-available OpenRouter model usable for ordinary text
+  chat, and preserve rooms, per-agent provider/model choices, existing tools,
+  settings, permissions, and destinations.
+- Restrict the new loop to direct conversations and the isolated Local VM;
+  expose no host, cloud, apps, files, dweb, peer agents, or host environment.
+- Connect application-owned Allow once/Deny/Cancel approval, bounded product
+  states, immediate preview refresh with polling fallback, one-lease lifecycle,
+  provider-neutral continuation, and a global-switch rollback.
+- Document that passwords, MFA, CAPTCHAs, and other protected input are
+  completed manually in the visible Local VM and remain outside prompts.
 
-**Checkpoint:** unsupported models remain disabled with an explanation;
-supported models can select Local VM without a false capability error.
+**Checkpoint:** an explicitly enabled direct Terra agent can use the ready
+Local VM only after current metadata verification and per-call Allow once
+decisions. Ineligible models remain text-capable, and disabling the global
+switch cancels and drains active OpenRouter Local VM turns without changing
+stored settings.
 
 ## Acceptance test
 
 Use a controlled test webpage rather than a live social account for automated
 CI and release verification.
 
-1. Select a tool-capable OpenRouter model and Local VM.
+1. Enable the global experimental switch and one test agent, select the exact
+   `openai/gpt-5.6-terra` model and Local VM, and confirm the current catalog
+   metadata is verified.
 2. Ask the bot to open the controlled page and summarize visible content.
 3. Watch it take screenshots, click, scroll, and type into a harmless form.
 4. Confirm a consequential mock action produces an approval card and does not
@@ -150,9 +170,14 @@ CI and release verification.
    processes.
 7. Confirm selecting Computer Off gives the model no computer tools.
 
-After those checks pass, a person may perform a separate manual Facebook smoke
-test using an account they are authorized to access. The person signs in
-directly inside the Local VM; credentials are never pasted into chat.
+8. Disable the global switch during a test turn and verify clean cancellation,
+   lease release, retained per-agent settings, and continued OpenRouter text
+   chat.
+
+After those checks pass, a person may perform a separate manual site smoke test
+using an account they are authorized to access. The person signs in directly
+inside the Local VM; credentials are never pasted into chat. Automated and
+release tests use a controlled page rather than a live social account.
 
 ## Definition of done
 

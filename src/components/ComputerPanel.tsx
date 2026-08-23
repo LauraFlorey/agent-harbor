@@ -21,6 +21,7 @@ import { useStore, type Bot } from "@/state/store";
 import type { Routine } from "@/lib/routines";
 import { ApiKeyRow } from "./ApiKeys";
 import { cn } from "@/lib/cn";
+import { LOCAL_VM_PREVIEW_POLL_MS } from "@/lib/local-vm-preview";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { RoutineEditor } from "./RoutinesPage";
 
@@ -88,11 +89,21 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
   const selectedInstance = state.instances.find(
     (instance) => instance.instanceId === bot.modelSelection.instanceId,
   );
+  const selectedModel = selectedInstance?.models.options.find((option) => option.id === bot.modelSelection.model);
+  const isOpenRouter = selectedInstance?.driverKind === "openrouter";
+  const openRouterLocalVmEligible = Boolean(
+    isOpenRouter &&
+    state.config?.openrouter?.localVmEnabled &&
+    bot.openrouterLocalVm &&
+    selectedModel?.localVm?.status === "verified",
+  );
   const vmSupported = Boolean(
     selectedInstance?.snapshot.state === "available" &&
-      (selectedInstance.capabilities?.computerUse === "mcp" ||
-        selectedInstance.capabilities?.computerUse === "server") &&
-      selectedInstance.capabilities?.executionMode === "local-process",
+      (openRouterLocalVmEligible || (
+        (selectedInstance.capabilities?.computerUse === "mcp" ||
+          selectedInstance.capabilities?.computerUse === "server") &&
+        selectedInstance.capabilities?.executionMode === "local-process"
+      )),
   );
   const computerToolSupported = selectedInstance?.capabilities?.computerUse === "mcp";
   const cloudSupported =
@@ -120,6 +131,17 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
       : bot.computer === "local"
         ? "this computer"
         : null;
+  const localVmTurnState = state.localVmTurns[bot.id];
+  const localVmTurnLabel: Record<NonNullable<typeof localVmTurnState>, string> = {
+    preparing: "Preparing Local VM…",
+    contended: "Local VM is in use by another agent",
+    working: "Working in Local VM",
+    "waiting-approval": "Waiting for your approval",
+    cleaning: "Cleaning up and releasing Local VM…",
+    failed: "Local VM turn failed and was cleaned up",
+    "metadata-unverified": "Current model metadata could not be verified; this turn used text only",
+    idle: "Local VM ready",
+  };
 
   // resolve the mode on open; box endpoints are only ever hit on the
   // cloud path, so local/off can never render a JSON error as an image
@@ -141,7 +163,14 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
     }
     if (bot.computer === "vm") {
       if (!vmSupported) {
-        setError("This model engine cannot use the Local VM. Choose Claude or an ACP engine.");
+        const message = isOpenRouter
+          ? !state.config?.openrouter?.localVmEnabled
+            ? "Experimental OpenRouter Local VM access is Off in App Settings → Local VM. Text chat remains available."
+            : !bot.openrouterLocalVm
+              ? "OpenRouter Local VM access is Off for this agent. Text chat remains available."
+              : selectedModel?.localVm?.reason ?? "Agent Harbor could not verify this model for Local VM tools. Text chat remains available."
+          : "This model engine cannot use the Local VM. Choose Claude or an ACP engine.";
+        setError(message);
         setPhase("vm-unavailable");
         return;
       }
@@ -191,7 +220,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
     return () => {
       alive = false;
     };
-  }, [bot.id, bot.computer, retry, capabilitiesReady, localAvailable, vmSupported, computerToolSupported, cloudSupported]);
+  }, [bot.id, bot.computer, bot.openrouterLocalVm, retry, capabilitiesReady, localAvailable, vmSupported, computerToolSupported, cloudSupported, isOpenRouter, selectedModel?.localVm?.reason, state.config?.openrouter?.localVmEnabled]);
 
   // cloud preview: SSE frames win while the bot works; otherwise poll
   const live = state.screens[bot.id];
@@ -231,20 +260,23 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
       vmInFlight.current = true;
       try {
         const { image } = await api("/api/local-computer/screenshot", { method: "POST" });
-        if (alive && typeof image === "string") setVmFrame(image);
+        if (alive && typeof image === "string") {
+          setVmFrame(image);
+          setError(null);
+        }
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(`Preview unavailable — showing the last frame. ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         vmInFlight.current = false;
       }
     };
     void shoot();
-    const timer = window.setInterval(() => void shoot(), 3000);
+    const timer = window.setInterval(() => void shoot(), LOCAL_VM_PREVIEW_POLL_MS);
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [phase]);
+  }, [phase, state.localVmPreviewNonce[bot.id]]);
 
   // local preview: frames from the Electron main process. The FIRST capture
   // attempt is what makes macOS show the Screen Recording prompt (there is
@@ -346,6 +378,11 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
             {phase === "local" && <span className="text-[11px]">this computer</span>}
             {phase === "vm" && <span className="text-[11px]">Local VM</span>}
         </div>
+        {localVmTurnState && localVmTurnState !== "idle" && (
+          <div className="mb-2 rounded-lg bg-accent/10 px-3 py-2 text-[12px] text-accent">
+            {localVmTurnLabel[localVmTurnState]}
+          </div>
+        )}
         <div className="flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-xl bg-card">
           {frameSrc ? (
             <img src={frameSrc} alt={`${bot.name}'s screen`} className="h-full w-full object-contain" />
@@ -439,6 +476,48 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
               in a container on this machine — free and separate from your own desktop. Set it up in App
               Settings → Local VM.
           </div>
+          {isOpenRouter && (
+            <div className="mt-3 rounded-lg border border-hairline/40 bg-inset px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[13px] font-medium text-ink">OpenRouter Local VM</div>
+                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">
+                    Experimental and separate from ordinary OpenRouter text chat. Every tool call still requires Allow once.
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={Boolean(bot.openrouterLocalVm)}
+                  aria-label="OpenRouter Local VM for this agent"
+                  onClick={() => {
+                    if (
+                      !bot.openrouterLocalVm &&
+                      !window.confirm(
+                        `Allow ${bot.name} to request tools in the isolated Local VM when an explicitly verified OpenRouter model is selected? You will still approve every call once.`,
+                      )
+                    ) return;
+                    dispatch({ type: "updateBot", botId: bot.id, patch: { openrouterLocalVm: !bot.openrouterLocalVm } });
+                  }}
+                  className={cn(
+                    "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+                    bot.openrouterLocalVm ? "bg-accent" : "bg-raised",
+                  )}
+                >
+                  <span className={cn(
+                    "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                    bot.openrouterLocalVm ? "left-[21px]" : "left-[3px]",
+                  )} />
+                </button>
+              </div>
+              <div className="mt-2 text-[11.5px] text-ink-secondary">
+                {!state.config?.openrouter?.localVmEnabled
+                  ? "The app-wide experimental toggle is Off."
+                  : selectedModel?.localVm?.status === "verified"
+                    ? "This exact model is verified for Local VM tools."
+                    : selectedModel?.localVm?.reason ?? "This model's Local VM metadata could not be verified."}
+              </div>
+            </div>
+          )}
           <div className="mt-3 flex overflow-hidden rounded-lg border border-hairline/40">
             {(
               [
@@ -455,7 +534,9 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
                   (mode === "local" && (!localAvailable || !computerToolSupported));
                 const unavailableTitle =
                   mode === "vm" && !vmSupported
-                    ? "This model engine cannot use the Local VM"
+                    ? isOpenRouter
+                      ? selectedModel?.localVm?.reason ?? "Enable both OpenRouter Local VM controls and choose the verified Terra model"
+                      : "This model engine cannot use the Local VM"
                     : mode === "cloud" && !cloudSupported
                       ? "This model engine cannot use cloud computer tools"
                       : mode === "local" && !computerToolSupported

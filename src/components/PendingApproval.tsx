@@ -19,6 +19,12 @@ export interface Pending {
   allowKey?: string;
   detail: string;
   held?: string;
+  approvalKind?: "openrouter-local-vm";
+  modelLabel?: string;
+  destination?: "Local VM";
+  consequential?: boolean;
+  expiresAt?: number;
+  oneAttempt?: boolean;
 }
 
 /** Open approvals on a thread, oldest first — answered/dismissed drop out. */
@@ -32,6 +38,12 @@ export function pendingApprovals(messages: Message[]): Pending[] {
       allowKey: m.card!.allowKey,
       detail: m.card!.subtitle,
       held: m.card!.held,
+      approvalKind: m.card!.approvalKind,
+      modelLabel: m.card!.modelLabel,
+      destination: m.card!.destination,
+      consequential: m.card!.consequential,
+      expiresAt: m.card!.expiresAt,
+      oneAttempt: m.card!.oneAttempt,
     }));
 }
 
@@ -68,6 +80,16 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
         <span className="text-[13px] text-ink">{label(pending.tool)}</span>
         <span className="font-mono text-[11px] text-ink-secondary">{pending.tool}</span>
       </div>
+      {pending.approvalKind === "openrouter-local-vm" && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink-secondary">
+          <span>Model: {pending.modelLabel ?? "OpenRouter"}</span>
+          <span>Destination: {pending.destination ?? "Local VM"}</span>
+          {pending.oneAttempt && <span>One attempt only</span>}
+          {pending.expiresAt && (
+            <span>Expires in {Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000))} seconds</span>
+          )}
+        </div>
+      )}
       {/* never truncated — long commands wrap and scroll */}
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink">
         {pending.detail}
@@ -112,7 +134,7 @@ export function PendingApprovalActions({
       >
         Deny
       </button>
-      {bot && pending.allowKey && (
+      {pending.approvalKind !== "openrouter-local-vm" && bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
           title={`Stop asking ${bot.name} about ${pending.allowKey}`}
