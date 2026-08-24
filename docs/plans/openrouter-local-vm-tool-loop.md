@@ -1,5 +1,7 @@
 # Sprint: OpenRouter Local VM tool loop
 
+Current status and branch handoff: [Agent Harbor current handoff](current-handoff.md).
+
 ## Outcome
 
 An Agent Harbor bot using an OpenRouter model can operate the isolated Local
@@ -258,14 +260,39 @@ agent prompt fails.
 ### Next — return to controlled Agent Harbor work
 
 - Treat Spawn as unavailable for the current Issue #11 acceptance path.
-- Keep the current diagnostic checkpoint and investigate Cua browser action
-  delivery as a separate, explicitly scoped story before resuming acceptance.
+- Use [Issue #16](https://github.com/LauraFlorey/agent-harbor/issues/16) for the
+  diagnosis-only Cua browser-action story. Reproduce one harmless click, locate
+  the lowest failing boundary, and add a deterministic failing regression test
+  before proposing or implementing a repair.
 - Keep the diagnostic checkpoint separate from the Story 6 baseline until the
   complete acceptance record and chosen execution path are reviewed.
 - Update public-facing status only after every required acceptance item is
   observed, not merely configured or tested with fixtures.
-- Merge and push only after an explicit final review of acceptance evidence,
-  branch scope, rollback behavior, and the chosen execution approach.
+- Do not broaden Issue #16 into scrolling, typing, live-account activity,
+  credential handling, Spawn, Jinx, cloud resources, or host-computer access.
+- The diagnostic and model-picker branches are pushed to the private remote but
+  remain unmerged. Merge only after an explicit final review of acceptance
+  evidence, branch scope, rollback behavior, and the chosen execution approach.
 
 See the [OpenRouter Spawn repository](https://github.com/OpenRouterLabs/spawn)
 for its current supported matrix and alpha status.
+
+### Separate experiment — Barehands Thursday demo
+
+[Barehands](https://github.com/jaredrhod/barehands) is being rehearsed as a
+standalone, local, user-controlled visual demo. It is not an Agent Harbor
+agent, computer-use provider, Issue #11 dependency, or accepted product
+integration.
+
+The demo uses an unmodified sibling checkout pinned to upstream commit
+`bdd8df505b290287dc5483844eb43d61fa1b74af`, included sample notes and media,
+Chrome camera permission, and a local server bound to `127.0.0.1:8794`. A
+separate user-triggered helper can place one harmless explanatory card on the
+board. No personal notes, credentials, Agent Harbor data, Cua path, model call,
+or agent connection is configured.
+
+The current hand tracking is visibly experimental. The hand pointer is not the
+macOS cursor, and the upstream board does not constrain the draggable assistant
+ring to the viewport. No upstream source patch has been made. Reconsider a
+permissioned display-only bridge only after the demo, an AGPL licensing review,
+and a separate security and product-scope decision.
