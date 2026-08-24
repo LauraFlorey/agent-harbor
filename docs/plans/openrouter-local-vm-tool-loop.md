@@ -193,7 +193,7 @@ release tests use a controlled page rather than a live social account.
 
 ## Roadmap after Story 6
 
-### Now — complete controlled acceptance
+### Paused — controlled acceptance
 
 The first live approval-gated inspection passed on August 24, 2026: the Terra
 test agent requested `get_accessibility_tree`, the owner chose Allow once, the
@@ -201,38 +201,30 @@ tool ran inside the isolated Local VM, and the agent returned a description of
 the visible desktop. Automated tests, type checking, cleanup verification, and
 the final security review also passed at checkpoint `cf11c7c`.
 
-This proves the provider, approval, MCP, execution, and final-response path. It
-does not complete the full acceptance test above. Continue with one controlled
-step at a time:
+The second live test also reached the loopback-only fixture through Docker
+Desktop's private host bridge. After separate Allow once decisions, Terra
+reported the correct page title, main heading, and `Status: ready`. This proves
+the provider, approval, MCP, read-only browser inspection, and final-response
+path.
 
-1. Make the harmless test page reachable only for the isolated test workflow.
-2. Verify visible-content inspection, then separately verify click, scroll, and
-   harmless form typing with Allow once required for every call.
-3. Verify a consequential mock action cannot execute before approval.
-4. Verify interruption, restart cleanup, Computer Off, and global-switch
-   rollback exactly as listed in the acceptance test.
-5. Run the package smoke check and record any platform coverage that remains
-   unverified rather than treating macOS results as cross-platform proof.
+Controlled acceptance is paused at browser interaction. An approved visual
+click missed the fixture button and returned a tool failure. A separate focused
+retry used Cua's declared `page` / `click_element` action with the exact
+`#harmless-button` selector; it was also approved and failed. The fixture
+remained at `Status: ready`, the Local VM stayed healthy, the turn released its
+lease, and no MCP guardian process remained.
 
-Stop and re-evaluate before adding another compatibility repair if the live
-path exposes a new architectural failure after the successful checkpoint.
+Do not proceed to scroll, typing, interruption, rollback, package smoke, or
+release claims on this path. Do not add another compatibility repair or broad
+retry until the execution approach is re-evaluated.
 
-### Next — preserve and review the release candidate
-
-- Keep the diagnostic checkpoint separate from the Story 6 baseline until the
-  complete acceptance record is reviewed.
-- Update the public-facing status only after every required acceptance item is
-  observed, not merely configured or tested with fixtures.
-- Merge and push only after an explicit final review of the acceptance record,
-  branch scope, and rollback behavior.
-
-### Later — evaluate OpenRouter Spawn
+### Next — evaluate OpenRouter Spawn
 
 Run a time-boxed proof of concept on a separate branch or disposable workspace;
-do not replace the working Local VM path in place. Evaluate Spawn as a possible
-execution backend for provisioning, agent installation, credential injection,
-headless operation, status, and cleanup while Agent Harbor retains its own UI,
-approval gate, audit trail, bot settings, and safety policy.
+do not replace or modify the current checkpoint in place. Evaluate Spawn as a
+possible execution backend for provisioning, agent installation, credential
+injection, headless operation, status, and cleanup while Agent Harbor retains
+its own UI, approval gate, audit trail, bot settings, and safety policy.
 
 The proof of concept should compare:
 
@@ -244,7 +236,23 @@ The proof of concept should compare:
 - the operational risk of depending on software that OpenRouter currently
   labels alpha.
 
-Adopt Spawn only if that proof is simpler and at least as safe as the accepted
-Local VM checkpoint. Otherwise retain the working path and revisit Spawn after
-it matures. See the [OpenRouter Spawn repository](https://github.com/OpenRouterLabs/spawn)
-for its current supported matrix and status.
+The proof must begin with a local sandbox and dry-run or headless lifecycle
+checks. Provision no paid cloud resource until cost, credentials, teardown, and
+the exact test target are reviewed and explicitly approved.
+
+### After the evaluation — choose one path
+
+- If Spawn is simpler and at least as safe, design it behind a replaceable
+  Agent Harbor adapter before changing product behavior.
+- If Spawn cannot preserve the approval and audit boundary, keep the current
+  checkpoint and investigate Cua browser action delivery as a separate,
+  explicitly scoped story before resuming acceptance.
+- Keep the diagnostic checkpoint separate from the Story 6 baseline until the
+  complete acceptance record and chosen execution path are reviewed.
+- Update public-facing status only after every required acceptance item is
+  observed, not merely configured or tested with fixtures.
+- Merge and push only after an explicit final review of acceptance evidence,
+  branch scope, rollback behavior, and the chosen execution approach.
+
+See the [OpenRouter Spawn repository](https://github.com/OpenRouterLabs/spawn)
+for its current supported matrix and alpha status.
