@@ -455,6 +455,38 @@ describe("turn-scoped Local VM tool approval gate", () => {
     await assertReleased(dir);
   });
 
+  it("enforces the bounded pattern and numeric formats accepted from pinned Cua", async () => {
+    const { dir, endpoint } = await fakeEndpoint("cua-safe-schema-features");
+    const app = applicationChannel();
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
+      const requests = client.createToolApprovalSession({ turnId: "turn-cua-formats", approval: app.channel });
+      for (const argumentsValue of [
+        { snapshot_id: "wrong", pid: 1, session_index: 1, ratio: 0.5 },
+        { snapshot_id: "s0123abcd", pid: -1, session_index: 1, ratio: 0.5 },
+        { snapshot_id: "s0123abcd", pid: 0x1_0000_0000, session_index: 1, ratio: 0.5 },
+        { snapshot_id: "s0123abcd", pid: 1, session_index: -1, ratio: 0.5 },
+      ]) {
+        await expect(requests.execute({
+          id: `invalid-${JSON.stringify(argumentsValue)}`,
+          name: "safe_cua_schema",
+          arguments: argumentsValue,
+        })).rejects.toMatchObject({ code: "schema_rejected" });
+      }
+      expect(app.events).toEqual([]);
+
+      const valid = requests.execute({
+        id: "valid-cua-formats",
+        name: "safe_cua_schema",
+        arguments: { snapshot_id: "s0123abcd", pid: 42, session_index: 7, ratio: 0.5 },
+      });
+      const [request] = await opened(app.events);
+      expect(app.decisions.resolve({ challenge: request.challenge, behavior: "deny" })).toBe(true);
+      await expect(valid).rejects.toMatchObject({ code: "approval_denied" });
+      expect((await readState(dir)).methods).not.toContain("tools/call");
+    });
+    await assertReleased(dir);
+  });
+
   it("fails closed on unsupported schema vocabularies during compilation", async () => {
     const { dir, endpoint } = await fakeEndpoint("unsupported-schema");
     const client = await connectLeasedMcp(endpoint);

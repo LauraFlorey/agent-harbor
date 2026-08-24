@@ -56,6 +56,8 @@ const GUARDIAN_PATH = (() => {
 })();
 const SECRET_ARGUMENT = /(?:^|[-_])(api[-_]?key|token|secret|password|credential)(?:=|$)/i;
 const TOOL_NAME = /^[A-Za-z0-9_.:-]{1,128}$/;
+const SAFE_SCHEMA_PATTERNS = new Set(["^s[0-9a-f]{8}$"]);
+const SAFE_SCHEMA_FORMATS = new Set(["double", "uint32", "uint64"]);
 
 interface ValidatedEndpoint {
   command: string;
@@ -72,14 +74,52 @@ type McpFailureCode =
   | "rpc_failure"
   | "timeout";
 
+export type McpFailureReason =
+  | "aborted"
+  | "catalog_rejection"
+  | "child_exit"
+  | "cleanup_failure"
+  | "closed"
+  | "endpoint_validation"
+  | "initialization_failure"
+  | "request_timeout"
+  | "rpc_failure"
+  | "tool_discovery_failure"
+  | "tool_execution_failure"
+  | "transport_failure";
+
+function defaultFailureReason(code: McpFailureCode): McpFailureReason {
+  if (code === "aborted") return "aborted";
+  if (code === "closed") return "closed";
+  if (code === "invalid_endpoint") return "endpoint_validation";
+  if (code === "rpc_failure") return "rpc_failure";
+  if (code === "timeout") return "request_timeout";
+  if (code === "process_failure") return "transport_failure";
+  return "transport_failure";
+}
+
 export class TurnMcpError extends Error {
   readonly code: McpFailureCode;
+  readonly reason: McpFailureReason;
 
-  constructor(code: McpFailureCode, message: string) {
+  constructor(code: McpFailureCode, message: string, reason: McpFailureReason = defaultFailureReason(code)) {
     super(message);
     this.name = "TurnMcpError";
     this.code = code;
+    this.reason = reason;
   }
+}
+
+function startupFailure(
+  error: unknown,
+  reason: "initialization_failure" | "tool_discovery_failure",
+  message: string,
+): TurnMcpError {
+  if (error instanceof TurnMcpError) {
+    if (error.reason === "child_exit") return error;
+    return new TurnMcpError(error.code, message, reason);
+  }
+  return new TurnMcpError("process_failure", message, reason);
 }
 
 export interface TurnMcpClientOptions {
@@ -234,7 +274,15 @@ function validateSchemaNode(value: unknown, depth: number, budget: SchemaBudget)
   if (depth > MAX_SCHEMA_DEPTH || budget.nodes > MAX_SCHEMA_NODES) return false;
   if (typeof value === "boolean") return true;
   if (!isRecord(value)) return false;
-  if (value.pattern !== undefined || value.patternProperties !== undefined || value.format !== undefined) return false;
+  if (
+    (value.pattern !== undefined && (
+      typeof value.pattern !== "string" || !SAFE_SCHEMA_PATTERNS.has(value.pattern)
+    )) ||
+    value.patternProperties !== undefined ||
+    (value.format !== undefined && (
+      typeof value.format !== "string" || !SAFE_SCHEMA_FORMATS.has(value.format)
+    ))
+  ) return false;
   for (const ref of [value.$ref, value.$dynamicRef]) {
     if (ref !== undefined && (typeof ref !== "string" || !ref.startsWith("#"))) return false;
   }
@@ -289,7 +337,11 @@ function schemaUsesUnsupportedExecutionFeature(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(schemaUsesUnsupportedExecutionFeature);
   if (!isRecord(value)) return false;
   for (const [key, nested] of Object.entries(value)) {
-    if (key === "pattern" || key === "patternProperties" || key === "format") return true;
+    if (
+      (key === "pattern" && (typeof nested !== "string" || !SAFE_SCHEMA_PATTERNS.has(nested))) ||
+      key === "patternProperties" ||
+      (key === "format" && (typeof nested !== "string" || !SAFE_SCHEMA_FORMATS.has(nested)))
+    ) return true;
     if (
       (key === "$ref" || key === "$dynamicRef") &&
       (typeof nested !== "string" || !nested.startsWith("#"))
@@ -492,17 +544,33 @@ export class TurnScopedMcpClient {
       );
       const startupDeadline = process.hrtime.bigint() + BigInt(Math.ceil(timeoutMs * 1_000_000));
       client.attach();
-      await client.request("initialize", {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
-        clientInfo: { name: "agent-harbor", version: "0.1" },
-      }, options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline);
-      client.notify("notifications/initialized");
-      const tools = validateTools(await client.request(
-        "tools/list",
-        {},
-        options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline,
-      ));
+      try {
+        await client.request("initialize", {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "agent-harbor", version: "0.1" },
+        }, options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline);
+        client.notify("notifications/initialized");
+      } catch (error) {
+        throw startupFailure(error, "initialization_failure", "Local VM MCP initialization failed");
+      }
+      let discovered: unknown;
+      try {
+        discovered = await client.request(
+          "tools/list",
+          {},
+          options.turnControl ? mcpRequestDeadlineNs(options.turnControl) : startupDeadline,
+        );
+      } catch (error) {
+        throw startupFailure(error, "tool_discovery_failure", "Local VM MCP tool discovery failed");
+      }
+      let tools: ProviderToolDefinition[];
+      try {
+        tools = validateTools(discovered);
+      } catch (error) {
+        const code = error instanceof TurnMcpError ? error.code : "invalid_response";
+        throw new TurnMcpError(code, "Local VM MCP tool catalog was rejected", "catalog_rejection");
+      }
       client.discoveredTools = Object.freeze(
         tools.map((tool) => Object.freeze(tool)),
       );
@@ -582,6 +650,10 @@ export class TurnScopedMcpClient {
       const line = this.buffer.slice(0, newline).trim();
       this.buffer = this.buffer.slice(newline + 1);
       if (!line) continue;
+      if (line === "{agent-harbor-mcp-child-exited}") {
+        this.fail(new TurnMcpError("process_failure", "Local VM MCP process exited", "child_exit"));
+        return;
+      }
       let message: JsonRpcMessage;
       try {
         message = JSON.parse(line) as JsonRpcMessage;
@@ -618,7 +690,7 @@ export class TurnScopedMcpClient {
   };
 
   private readonly onProcessError = (): void => {
-    this.fail(new TurnMcpError("process_failure", "Local VM MCP process failed"));
+    this.fail(new TurnMcpError("process_failure", "Local VM MCP process failed", "child_exit"));
   };
 
   private readonly onStdoutError = (): void => {
@@ -626,7 +698,7 @@ export class TurnScopedMcpClient {
   };
 
   private readonly onProcessExit = (): void => {
-    if (!this.stopped) this.fail(new TurnMcpError("process_failure", "Local VM MCP process exited"));
+    if (!this.stopped) this.fail(new TurnMcpError("process_failure", "Local VM MCP process exited", "child_exit"));
   };
 
   private readonly onStdinError = (): void => {
@@ -763,7 +835,7 @@ export class TurnScopedMcpClient {
         }
       }
       if (cleanupFailed) {
-        throw new TurnMcpError("closed", "Local VM MCP cleanup failed");
+        throw new TurnMcpError("closed", "Local VM MCP cleanup failed", "cleanup_failure");
       }
     })();
     return this.stopTask;

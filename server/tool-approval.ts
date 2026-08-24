@@ -556,6 +556,17 @@ export function createApprovedToolRequests(
     strict: true,
     useDefaults: false,
     validateFormats: true,
+    formats: {
+      double: { type: "number", validate: (value: number) => Number.isFinite(value) },
+      uint32: {
+        type: "number",
+        validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff,
+      },
+      uint64: {
+        type: "number",
+        validate: (value: number) => Number.isSafeInteger(value) && value >= 0,
+      },
+    },
   });
   const trustedTools = new Map<string, TrustedTool>();
   for (const definition of discoveredTools) {

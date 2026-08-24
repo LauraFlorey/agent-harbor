@@ -35,6 +35,7 @@ import {
 import { drainCliTrees } from "./procs.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
+import { appendNative } from "./drivers/native.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { discardDelegations, drainDelegations, queueDelegation, type QueueResult } from "./delegations.ts";
 import { EventBus } from "./harness/bus.ts";
@@ -54,6 +55,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease } from "./local-vm-lease.ts";
 import { runLocalVmToolTurn } from "./local-vm-tool-turn.ts";
+import { TurnMcpError } from "./mcp-client.ts";
 import {
   OPENROUTER_LOCAL_VM_MODEL_ID,
   openRouterLocalVmTurnEligibility,
@@ -636,6 +638,13 @@ function openRouterServerToolTurn(
         localVmProductState(bot.id, "idle");
         return result;
       } catch (error) {
+        if (error instanceof TurnMcpError) {
+          appendNative(threadId, {
+            dir: "in",
+            source: "openrouter.local-vm",
+            msg: { outcome: "failure", reason: error.reason, code: error.code },
+          });
+        }
         const code = error && typeof error === "object" && "code" in error
           ? String((error as { code?: unknown }).code)
           : "";

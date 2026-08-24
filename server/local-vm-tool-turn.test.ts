@@ -321,6 +321,22 @@ describe("Local VM Story 5 turn coordinator", () => {
     await assertReleased(mcp.dir);
   });
 
+  it("preserves the first MCP startup failure when cleanup releases the lease", async () => {
+    const startup = await fakeEndpoint("rpc-error");
+    const lease = new LocalVmLease(5_000);
+    await expect(runLocalVmToolTurn({
+      lease,
+      binding: binding("startup-failure"),
+      endpoint: startup.endpoint,
+    }, async () => undefined)).rejects.toMatchObject({
+      code: "rpc_failure",
+      reason: "initialization_failure",
+      message: "Local VM MCP initialization failed",
+    });
+    expect(lease.turnLifecycleResources()).toEqual({ active: 0, listeners: 0, timers: 0 });
+    await assertReleased(startup.dir);
+  });
+
   it("propagates active and pre-cancellation through approval, MCP, and stubborn process cleanup", async () => {
     const deferredLease = new LocalVmLease(5_000);
     const deferredController = new AbortController();

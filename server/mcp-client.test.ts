@@ -149,20 +149,23 @@ describe("turn-scoped Local VM MCP client", () => {
   });
 
   it.each([
-    ["rpc-error", "rpc_failure"],
-    ["malformed", "invalid_response"],
-    ["invalid-schema", "invalid_response"],
-    ["invalid-nested-schema", "invalid_response"],
-    ["invalid-tool-name", "invalid_response"],
-  ])("cleans the process tree after %s MCP failure", async (mode, code) => {
+    ["rpc-error", "rpc_failure", "initialization_failure"],
+    ["malformed", "invalid_response", "initialization_failure"],
+    ["invalid-schema", "invalid_response", "catalog_rejection"],
+    ["invalid-nested-schema", "invalid_response", "catalog_rejection"],
+    ["invalid-tool-name", "invalid_response", "catalog_rejection"],
+  ])("cleans the process tree after %s MCP failure", async (mode, code, reason) => {
     const { dir, endpoint } = await fakeEndpoint(mode);
-    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code });
+    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code, reason });
     await assertReleased(dir);
   });
 
   it("cleans the process tree and timer after initialization timeout", async () => {
     const { dir, endpoint } = await fakeEndpoint("hang");
-    await expect(connectLeasedMcp(endpoint, { timeoutMs: 500 })).rejects.toMatchObject({ code: "timeout" });
+    await expect(connectLeasedMcp(endpoint, { timeoutMs: 500 })).rejects.toMatchObject({
+      code: "timeout",
+      reason: "initialization_failure",
+    });
     await assertReleased(dir);
   });
 
@@ -193,6 +196,15 @@ describe("turn-scoped Local VM MCP client", () => {
     const { dir, endpoint } = await fakeEndpoint("split-utf8");
     await withLeasedMcpClient(endpoint, {}, async (client) => {
       expect(client.tools[0]?.description).toBe("Return the isolated 🖥️ state");
+    });
+    await assertReleased(dir);
+  });
+
+  it("accepts only the bounded schema pattern and numeric formats used by pinned Cua", async () => {
+    const { dir, endpoint } = await fakeEndpoint("cua-safe-schema-features");
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
+      expect(client.tools).toHaveLength(1);
+      expect(client.tools[0]?.name).toBe("safe_cua_schema");
     });
     await assertReleased(dir);
   });
@@ -252,7 +264,7 @@ describe("turn-scoped Local VM MCP client", () => {
   it("reaps the helper when the MCP leader exits first", async () => {
     const { dir, endpoint } = await fakeEndpoint("exit-after-list");
     await expect(withLeasedMcpClient(endpoint, {}, async () => new Promise<never>(() => {})))
-      .rejects.toMatchObject({ code: "invalid_response" });
+      .rejects.toMatchObject({ code: "process_failure", reason: "child_exit" });
     await assertReleased(dir);
   });
 
@@ -320,7 +332,10 @@ describe("turn-scoped Local VM MCP client", () => {
 
   it("cleans partial startup when the MCP child exits before initialization", async () => {
     const { dir, endpoint } = await fakeEndpoint("exit-before-initialize");
-    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(connectLeasedMcp(endpoint)).rejects.toMatchObject({
+      code: "process_failure",
+      reason: "child_exit",
+    });
     await assertReleased(dir);
   });
 

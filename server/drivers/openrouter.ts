@@ -646,11 +646,10 @@ export async function streamOpenRouterCompletion(
         if (typeof choiceRecord.finish_reason !== "string") {
           if (strictTools) throw malformedStream("finish reason is invalid");
         } else if (previousFinishReason !== null) {
-          if (strictTools) {
-            throw malformedStream(previousFinishReason === choiceRecord.finish_reason
-              ? "finish reason was repeated"
-              : "finish reason changed during the stream");
-          } else {
+          if (strictTools && previousFinishReason !== choiceRecord.finish_reason) {
+            throw malformedStream("finish reason changed during the stream");
+          }
+          if (!strictTools) {
             finishReason = choiceRecord.finish_reason;
           }
         } else {

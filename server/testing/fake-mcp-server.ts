@@ -103,6 +103,29 @@ process.stdin.on("data", (chunk) => {
         });
         continue;
       }
+      if (mode === "cua-safe-schema-features") {
+        send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            tools: [{
+              name: "safe_cua_schema",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  snapshot_id: { type: "string", pattern: "^s[0-9a-f]{8}$" },
+                  pid: { type: "integer", format: "uint32" },
+                  session_index: { type: "integer", format: "uint64" },
+                  ratio: { type: "number", format: "double" },
+                },
+                required: ["snapshot_id", "pid", "session_index", "ratio"],
+                additionalProperties: false,
+              },
+            }],
+          },
+        });
+        continue;
+      }
       if (mode === "invalid-nested-schema") {
         send({
           jsonrpc: "2.0",

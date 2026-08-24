@@ -9,7 +9,7 @@ import {
   type LocalVmTurnLeaseHandle,
 } from "./local-vm-lease.ts";
 import type { LocalVmMcpEndpoint } from "./local-vm-mcp.ts";
-import { TurnScopedMcpClient } from "./mcp-client.ts";
+import { TurnMcpError, TurnScopedMcpClient } from "./mcp-client.ts";
 import type {
   ApplicationToolApprovalChannel,
   ApprovedToolRequests,
@@ -68,6 +68,19 @@ function leaseEvent(error: unknown): "contended" | "expired" | "mismatch" | "reu
   if (error.code === "lease_mismatch") return "mismatch";
   if (error.code === "lease_reused") return "reused";
   return null;
+}
+
+function primaryTurnFailure(owner: ToolTurnControlOwner, error: unknown): unknown {
+  const controlled = owner.failure();
+  if (
+    error instanceof TurnMcpError &&
+    error.code !== "aborted" &&
+    controlled?.code === "aborted" &&
+    controlled.message === "Local VM lease ended before the turn completed"
+  ) {
+    return error;
+  }
+  return controlled ?? error;
 }
 
 /** Dormant Story 5 orchestration boundary. It owns one lease, one MCP child,
@@ -153,7 +166,7 @@ export async function runLocalVmToolTurn<T>(
     result = await client.runUntilSettled(() => raceAbort(owner, Promise.resolve().then(() => providerTurn(context))));
     completed = true;
   } catch (error) {
-    failure = owner.failure() ?? error;
+    failure = primaryTurnFailure(owner, error);
   } finally {
     try {
       owner.emit({ type: "state.transition", state: owner.signal.aborted ? "cancelling" : "cleaning" });

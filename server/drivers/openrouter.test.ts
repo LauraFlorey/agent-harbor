@@ -456,17 +456,19 @@ describe("OpenRouter streamed tool-call transport", () => {
       .rejects.toThrow("has no name");
   });
 
+  it("accepts repeated identical finish reasons when no content follows", async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+
+    await expect(streamOpenRouterCompletion(streamRequest(), async () => chunkedSseResponse(fixture)))
+      .resolves.toMatchObject({ finishReason: "stop", text: "", toolCalls: [] });
+  });
+
   it.each([
-    [
-      "duplicate finish reasons",
-      [
-        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-        "data: [DONE]",
-        "",
-      ].join("\n"),
-      "finish reason was repeated",
-    ],
     [
       "conflicting finish reasons",
       [
