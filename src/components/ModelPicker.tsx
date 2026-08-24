@@ -110,40 +110,42 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
       {open && (
         <div
           data-model-picker-content
-          className="absolute right-0 top-full z-30 mt-2 flex w-[320px] overflow-hidden rounded-xl border border-hairline/50 bg-card shadow-2xl shadow-black/50"
+          className="absolute right-0 top-full z-30 mt-2 flex max-h-[calc(100vh-5rem)] w-[320px] overflow-hidden rounded-xl border border-hairline/50 bg-card shadow-2xl shadow-black/50"
         >
           {/* instance rail */}
-          <div className="flex flex-col gap-1 border-r border-hairline/40 bg-panel p-2">
-            {state.instances.map((instance) => {
-              const unavailable =
-                instance.snapshot.state !== "available" || instance.snapshot.authenticated === false;
-              const onRail = instance.instanceId === railInstance?.instanceId;
-              return (
-                <button
-                  key={instance.instanceId}
-                  onClick={() => setRailId(instance.instanceId)}
-                  title={
-                    unavailable
-                      ? `${instance.displayName} — ${
-                          instance.snapshot.reason ??
-                          (instance.snapshot.authenticated === false ? "sign-in required" : "unavailable")
-                        }`
-                      : instance.displayName
-                  }
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-lg",
-                    onRail ? "bg-raised" : "hover:bg-raised/60",
-                    unavailable && "opacity-40",
-                  )}
-                >
-                  <ProviderMark driverKind={instance.driverKind} size={18} />
-                </button>
-              );
-            })}
+          <div className="min-h-0 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
+            <div className="flex flex-col gap-1">
+              {state.instances.map((instance) => {
+                const unavailable =
+                  instance.snapshot.state !== "available" || instance.snapshot.authenticated === false;
+                const onRail = instance.instanceId === railInstance?.instanceId;
+                return (
+                  <button
+                    key={instance.instanceId}
+                    onClick={() => setRailId(instance.instanceId)}
+                    title={
+                      unavailable
+                        ? `${instance.displayName} — ${
+                            instance.snapshot.reason ??
+                            (instance.snapshot.authenticated === false ? "sign-in required" : "unavailable")
+                          }`
+                        : instance.displayName
+                    }
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-lg",
+                      onRail ? "bg-raised" : "hover:bg-raised/60",
+                      unavailable && "opacity-40",
+                    )}
+                  >
+                    <ProviderMark driverKind={instance.driverKind} size={18} />
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* model list for the rail-selected instance */}
-          <div className="min-w-0 flex-1 p-2">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
             {railInstance ? (
               <>
                 <div className="px-2 pb-1 pt-1">
@@ -163,43 +165,45 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
                     <EngineSetup instance={railInstance} />
                   </div>
                 )}
-                {railInstance.models.options.map((option) => {
-                  const current =
-                    selection.instanceId === railInstance.instanceId && selection.model === option.id;
-                  const disabled =
-                    railInstance.snapshot.state !== "available" ||
-                    railInstance.snapshot.authenticated === false;
-                  return (
-                    <button
-                      key={option.id}
-                      disabled={disabled}
-                      onClick={() => pick(railInstance, option.id)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]",
-                        disabled ? "cursor-not-allowed text-ink-secondary/50" : "text-ink hover:bg-raised/60",
-                        current && "bg-raised",
-                      )}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate">{option.label}</span>
-                        {option.id === railInstance.models.default && (
-                          <span className="shrink-0 rounded bg-inset px-1 py-px text-[10px] text-ink-secondary">
-                            default
-                          </span>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+                  {railInstance.models.options.map((option) => {
+                    const current =
+                      selection.instanceId === railInstance.instanceId && selection.model === option.id;
+                    const disabled =
+                      railInstance.snapshot.state !== "available" ||
+                      railInstance.snapshot.authenticated === false;
+                    return (
+                      <button
+                        key={option.id}
+                        disabled={disabled}
+                        onClick={() => pick(railInstance, option.id)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]",
+                          disabled ? "cursor-not-allowed text-ink-secondary/50" : "text-ink hover:bg-raised/60",
+                          current && "bg-raised",
                         )}
-                        {railInstance.driverKind === "openrouter" && option.localVm?.status === "verified" && (
-                          <span
-                            className="shrink-0 rounded bg-accent/10 px-1 py-px text-[10px] text-accent"
-                            title={option.localVm.reason}
-                          >
-                            Local VM verified
-                          </span>
-                        )}
-                      </span>
-                      {current && <Check size={14} className="shrink-0 text-accent" />}
-                    </button>
-                  );
-                })}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate">{option.label}</span>
+                          {option.id === railInstance.models.default && (
+                            <span className="shrink-0 rounded bg-inset px-1 py-px text-[10px] text-ink-secondary">
+                              default
+                            </span>
+                          )}
+                          {railInstance.driverKind === "openrouter" && option.localVm?.status === "verified" && (
+                            <span
+                              className="shrink-0 rounded bg-accent/10 px-1 py-px text-[10px] text-accent"
+                              title={option.localVm.reason}
+                            >
+                              Local VM verified
+                            </span>
+                          )}
+                        </span>
+                        {current && <Check size={14} className="shrink-0 text-accent" />}
+                      </button>
+                    );
+                  })}
+                </div>
               </>
             ) : (
               <div className="px-2 py-3 text-[13px] text-ink-secondary">
