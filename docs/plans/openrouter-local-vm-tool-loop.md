@@ -218,35 +218,48 @@ Do not proceed to scroll, typing, interruption, rollback, package smoke, or
 release claims on this path. Do not add another compatibility repair or broad
 retry until the execution approach is re-evaluated.
 
-### Next — evaluate OpenRouter Spawn
+### Deferred — OpenRouter Spawn evaluation
 
-Run a time-boxed proof of concept on a separate branch or disposable workspace;
-do not replace or modify the current checkpoint in place. Evaluate Spawn as a
-possible execution backend for provisioning, agent installation, credential
-injection, headless operation, status, and cleanup while Agent Harbor retains
-its own UI, approval gate, audit trail, bot settings, and safety policy.
+A time-boxed local proof of concept ran on August 24, 2026, in a disposable
+workspace outside Agent Harbor. It used Spawn `v1.1.1`, Bun `1.4.0`, Docker
+Desktop, and a one-day OpenRouter test key capped at `$1`. No cloud provider was
+configured or launched.
 
-The proof of concept should compare:
+The proof established that:
 
-- local sandbox and one cloud environment;
-- structured headless output and lifecycle/error reporting;
-- cancellation, cleanup, credential boundaries, and cost visibility;
-- whether Agent Harbor can wrap Spawn behind a replaceable adapter without
-  weakening Allow once or exposing the host Mac;
-- the operational risk of depending on software that OpenRouter currently
-  labels alpha.
+- the plain Codex / Local Sandbox dry run completed with exit code `0` and
+  provisioned nothing;
+- the sandbox image starts without a host bind mount, so it did not expose the
+  Agent Harbor repository, Jinx, the host shell, or host SSH keys;
+- failed runs removed their containers and left no Spawn process behind;
+- the test key recorded `$0.000` usage because no model prompt completed; and
+- Agent Harbor and Jinx remained unchanged.
 
-The proof must begin with a local sandbox and dry-run or headless lifecycle
-checks. Provision no paid cloud resource until cost, credentials, teardown, and
-the exact test target are reviewed and explicitly approved.
+The proof also found blocking alpha-compatibility and lifecycle-reporting
+problems:
 
-### After the evaluation — choose one path
+- combining `--dry-run` with headless execution bypassed the dry-run branch and
+  entered authentication and provisioning instead;
+- non-headless prompt execution forced `docker exec -it` and failed when no TTY
+  was attached;
+- headless prompt execution called `codex --full-auto`, but the Spawn image's
+  Codex CLI `0.132.0` rejects that obsolete argument and requires the newer
+  non-interactive `codex exec` path; and
+- Spawn returned process exit code `0` after reporting that prompt execution
+  failed, so its success status cannot currently be trusted for automation.
 
-- If Spawn is simpler and at least as safe, design it behind a replaceable
-  Agent Harbor adapter before changing product behavior.
-- If Spawn cannot preserve the approval and audit boundary, keep the current
-  checkpoint and investigate Cua browser action delivery as a separate,
-  explicitly scoped story before resuming acceptance.
+The Spawn evaluation is therefore deferred. Do not patch the vendor image,
+switch to another agent merely to bypass the Codex incompatibility, provision a
+cloud environment, or design an Agent Harbor adapter from this checkpoint.
+Re-evaluate only after a newer Spawn release fixes Codex prompt execution,
+honors dry-run before headless dispatch, and returns a failing status when the
+agent prompt fails.
+
+### Next — return to controlled Agent Harbor work
+
+- Treat Spawn as unavailable for the current Issue #11 acceptance path.
+- Keep the current diagnostic checkpoint and investigate Cua browser action
+  delivery as a separate, explicitly scoped story before resuming acceptance.
 - Keep the diagnostic checkpoint separate from the Story 6 baseline until the
   complete acceptance record and chosen execution path are reviewed.
 - Update public-facing status only after every required acceptance item is
