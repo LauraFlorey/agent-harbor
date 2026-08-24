@@ -190,3 +190,61 @@ release tests use a controlled page rather than a live social account.
 - Documentation states the supported destinations and model limitations.
 - The feature remains behind capability checks until the complete acceptance
   test passes; no partial implementation advertises computer support.
+
+## Roadmap after Story 6
+
+### Now — complete controlled acceptance
+
+The first live approval-gated inspection passed on August 24, 2026: the Terra
+test agent requested `get_accessibility_tree`, the owner chose Allow once, the
+tool ran inside the isolated Local VM, and the agent returned a description of
+the visible desktop. Automated tests, type checking, cleanup verification, and
+the final security review also passed at checkpoint `cf11c7c`.
+
+This proves the provider, approval, MCP, execution, and final-response path. It
+does not complete the full acceptance test above. Continue with one controlled
+step at a time:
+
+1. Make the harmless test page reachable only for the isolated test workflow.
+2. Verify visible-content inspection, then separately verify click, scroll, and
+   harmless form typing with Allow once required for every call.
+3. Verify a consequential mock action cannot execute before approval.
+4. Verify interruption, restart cleanup, Computer Off, and global-switch
+   rollback exactly as listed in the acceptance test.
+5. Run the package smoke check and record any platform coverage that remains
+   unverified rather than treating macOS results as cross-platform proof.
+
+Stop and re-evaluate before adding another compatibility repair if the live
+path exposes a new architectural failure after the successful checkpoint.
+
+### Next — preserve and review the release candidate
+
+- Keep the diagnostic checkpoint separate from the Story 6 baseline until the
+  complete acceptance record is reviewed.
+- Update the public-facing status only after every required acceptance item is
+  observed, not merely configured or tested with fixtures.
+- Merge and push only after an explicit final review of the acceptance record,
+  branch scope, and rollback behavior.
+
+### Later — evaluate OpenRouter Spawn
+
+Run a time-boxed proof of concept on a separate branch or disposable workspace;
+do not replace the working Local VM path in place. Evaluate Spawn as a possible
+execution backend for provisioning, agent installation, credential injection,
+headless operation, status, and cleanup while Agent Harbor retains its own UI,
+approval gate, audit trail, bot settings, and safety policy.
+
+The proof of concept should compare:
+
+- local sandbox and one cloud environment;
+- structured headless output and lifecycle/error reporting;
+- cancellation, cleanup, credential boundaries, and cost visibility;
+- whether Agent Harbor can wrap Spawn behind a replaceable adapter without
+  weakening Allow once or exposing the host Mac;
+- the operational risk of depending on software that OpenRouter currently
+  labels alpha.
+
+Adopt Spawn only if that proof is simpler and at least as safe as the accepted
+Local VM checkpoint. Otherwise retain the working path and revisit Spawn after
+it matures. See the [OpenRouter Spawn repository](https://github.com/OpenRouterLabs/spawn)
+for its current supported matrix and status.
