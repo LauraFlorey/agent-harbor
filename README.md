@@ -57,7 +57,8 @@ rebrand. See the [Agent Harbor rebrand boundary](docs/agent-harbor-rebrand.md) f
 ### 🧠 Pick a brain per bot
 
 A model picker with a provider rail — Claude and Codex models side by side, defaults marked, unavailable
-providers dimmed with the reason. Switch a bot's model mid-conversation.
+providers dimmed with the reason. Switch a bot's model mid-conversation, and give each agent its own
+owner-authored system instructions in Settings without changing its provider or permissions.
 
 <img src="docs/screenshots/model-picker.png" alt="Model picker with provider rail" width="100%">
 
@@ -72,8 +73,12 @@ with a live preview while it works and an "Open desktop" handoff when available.
 OpenRouter's experimental Local VM loop is separately off by default globally and per agent. Its initial
 allowlist is the exact `openai/gpt-5.6-terra` model, verified again against current account metadata for each
 direct-agent turn. Every other OpenRouter model remains available for ordinary text chat, and multi-agent
-rooms continue normally without this new tool loop. Each Local VM action requires **Allow once**; protected
+rooms continue normally without this new tool loop. In the personal-use policy, one explicit approval covers
+routine Local VM actions for that task; consequential actions still pause for a fresh decision. Protected
 sign-in or CAPTCHA steps are completed manually in the visible VM, never through chat.
+
+OpenRouter agents can also use bounded provider-hosted public web research independently of computer access.
+It uses the existing OpenRouter account and does not grant access to the Local VM or this Mac.
 
 <img src="docs/screenshots/computer-panel.png" alt="Computer panel with live screen preview" width="100%">
 

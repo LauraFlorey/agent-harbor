@@ -28,6 +28,19 @@ All account-available, text-capable OpenRouter models remain available for
 ordinary chat. Local VM access is a separate, experimental capability; it does
 not narrow the model picker or change ordinary text requests.
 
+OpenRouter turns also receive the provider-hosted `openrouter:web_search`
+server tool for current public-web research. It is independent of computer
+access: OpenRouter executes the search, and Agent Harbor does not acquire a
+Local VM lease or expose host/cloud computer tools for it. Agent Harbor caps a
+request at 4 searches, 5 results per search, 12 results total, and low search
+context. OpenRouter may use native provider search or its documented fallback,
+and search charges are additional to model token charges.
+
+Each agent can have owner-authored system instructions under **Agent Settings
+→ Profile → System instructions**. They apply to that agent in both direct
+conversations and rooms and do not change its provider, model, connected apps,
+computer destination, or permissions. Do not put credentials in this field.
+
 ## Experimental Local VM access
 
 OpenRouter Local VM access is off by default at both levels required to use it:
@@ -52,15 +65,27 @@ peer-agent, working-directory, credential, or environment access. The model
 cannot start Docker or the Local VM; when it is unavailable, prepare it in
 **App Settings → Local VM**.
 
-Every proposed tool call is shown sequentially with the requesting agent,
-model, exact discovered tool, Local VM destination, safe bounded details, and
-one-attempt 30-second expiry. The available decisions are **Allow once**,
-**Deny**, and **Cancel turn**. Auto mode, remembered permissions, and Always
-allow never approve this path. Denial permits at most one final tool-free reply
-explaining what did not happen.
+The first routine tool request in an attended task is shown with the requesting
+agent, model, exact discovered tool, Local VM destination, and safe bounded
+details. **Allow** grants routine Local VM actions only for that task. **Deny**
+executes nothing and permits at most one final tool-free explanation. A fresh
+task starts with no grant. Calls classified as consequential — including
+credential entry, purchases, publishing, deletion, account changes, and
+externally visible messages — always require a separate one-attempt decision.
+Unknown tools, changed arguments, replayed decisions, invalid schemas, and
+cross-turn reuse remain denied.
 
-Each turn keeps one exclusive Local VM lease and the original limits for time,
-approvals, calls, arguments, results, requests, repetitions, and telemetry.
+Auto mode is an explicit owner setting for attended personal use. It
+pre-authorizes routine Local VM actions for the current task but never
+consequential actions and never unattended/webhook work. Remembered tool grants
+do not widen this Local VM policy.
+
+Each turn keeps one exclusive Local VM lease and fixed monotonic limits for
+time, approvals, calls, arguments, results, requests, repetitions, and
+telemetry. The defaults are a 20-minute turn, 10-minute approval wait,
+90-second per-call allowance beginning after approval, 20-second MCP request,
+and 30-second tool execution. Approvals and retries never extend the original
+20-minute turn deadline.
 Interruption, provider or MCP failure, renderer loss, timeout, or disabling the
 global switch cancels the provider request, closes the turn-scoped MCP process,
 resolves pending approval state, and releases the lease. Disabling the global

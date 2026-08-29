@@ -38,7 +38,7 @@ export interface OptionCardData {
   held?: string;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
-  approvalKind?: "openrouter-local-vm";
+  approvalKind?: "openrouter-local-vm" | "openrouter-local-vm-session";
   modelLabel?: string;
   destination?: "Local VM";
   consequential?: boolean;
@@ -114,6 +114,8 @@ export interface Bot {
   name: string;
   title: string;
   description: string;
+  /** Owner-authored instructions applied to every turn for this agent. */
+  systemInstructions?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
@@ -345,6 +347,7 @@ type Action =
           | "name"
           | "title"
           | "description"
+          | "systemInstructions"
           | "notifications"
           | "computer"
           | "openrouterLocalVm"
@@ -891,7 +894,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // debounced PATCH per bot for text-field edits (name/title/description)
+  // debounced PATCH per bot for text-field edits, including owner instructions
   const patchTimers = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; patch: Record<string, unknown> }>());
 
   const dispatch = useMemo(() => {
@@ -1031,6 +1034,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   name: `${source.name} copy`,
                   title: source.title,
                   description: source.description,
+                  systemInstructions: source.systemInstructions ?? "",
                   notifications: source.notifications,
                   modelSelection: source.modelSelection,
                   ...(source.computer ? { computer: source.computer } : {}),

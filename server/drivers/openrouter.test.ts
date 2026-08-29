@@ -793,6 +793,56 @@ describe("OpenRouter streamed tool-call transport", () => {
     expect(body).not.toHaveProperty("tools");
     expect(result).toMatchObject({ text: "still text", toolCalls: [], finishReason: "stop" });
   });
+
+  it("adds bounded provider-hosted web research without enabling client tool execution", async () => {
+    let body: any;
+    const result = await streamOpenRouterCompletion(streamRequest({
+      tools: undefined,
+      webResearch: {
+        maxUses: 4,
+        maxResults: 5,
+        maxTotalResults: 12,
+        searchContextSize: "low",
+      },
+    }), async (_input, init) => {
+      body = JSON.parse(String(init?.body));
+      return chunkedSseResponse([
+        'data: {"choices":[{"delta":{"content":"Grounded answer with sources."},"finish_reason":"stop"}]}',
+        "data: [DONE]",
+        "",
+      ].join("\n"));
+    });
+
+    expect(body.tools).toEqual([{
+      type: "openrouter:web_search",
+      parameters: {
+        engine: "auto",
+        max_uses: 4,
+        max_results: 5,
+        max_total_results: 12,
+        search_context_size: "low",
+      },
+    }]);
+    expect(body.max_tool_calls).toBe(4);
+    expect(result).toMatchObject({
+      text: "Grounded answer with sources.",
+      toolCalls: [],
+      finishReason: "stop",
+    });
+  });
+
+  it.each([
+    { maxUses: 0, maxResults: 5, maxTotalResults: 12, searchContextSize: "low" },
+    { maxUses: 31, maxResults: 5, maxTotalResults: 12, searchContextSize: "low" },
+    { maxUses: 4, maxResults: 26, maxTotalResults: 30, searchContextSize: "low" },
+    { maxUses: 4, maxResults: 5, maxTotalResults: 4, searchContextSize: "low" },
+    { maxUses: 4, maxResults: 5, maxTotalResults: 12, searchContextSize: "extreme" },
+  ] as const)("rejects an invalid web-research policy before sending a request", async (webResearch) => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(streamOpenRouterCompletion(streamRequest({ webResearch: webResearch as never }), fetcher))
+      .rejects.toThrow("web research policy is invalid");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });
 
 describe("OpenRouter runtime", () => {
@@ -955,6 +1005,47 @@ describe("OpenRouter runtime", () => {
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "item.completed", itemType: "tool", ok: true }));
     expect(events).toContainEqual(expect.objectContaining({ type: "turn.completed", ok: true }));
+    await instance.dispose();
+  });
+
+  it("keeps provider web research separate from Local VM tools and removes both after denial", async () => {
+    const bodies: any[] = [];
+    const instance = await instanceWith(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return chunkedSseResponse(singleToolCallSse('{"query":"again"}'));
+    });
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    const bridge: ServerToolTurnBridge = {
+      run: async (_turnId, signal, operation) => operation({
+        tools: TOOL_DEFINITIONS,
+        signal,
+        execute: async () => {
+          throw new ToolApprovalError("approval_denied", "private denial detail");
+        },
+      }),
+    };
+
+    await instance.adapter.sendTurn({
+      threadId: "thread-web-and-vm-denied",
+      text: "Try",
+      model: "openai/gpt-5.6-terra",
+      integrations: {
+        serverToolTurn: bridge,
+        webResearch: { maxUses: 4, maxResults: 5, maxTotalResults: 12, searchContextSize: "low" },
+      },
+    });
+    await terminalEvent(events);
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].tools).toEqual([
+      expect.objectContaining({ type: "openrouter:web_search" }),
+      expect.objectContaining({ type: "function", function: expect.objectContaining({ name: "lookup" }) }),
+    ]);
+    expect(bodies[0].max_tool_calls).toBe(4);
+    expect(bodies[1]).not.toHaveProperty("tools");
+    expect(bodies[1]).not.toHaveProperty("max_tool_calls");
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn.completed", ok: false }));
     await instance.dispose();
   });
 

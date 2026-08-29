@@ -24,11 +24,11 @@ export interface LocalVmToolTurnLimits {
 }
 
 export const DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS: LocalVmToolTurnLimits = Object.freeze({
-  turnTimeoutMs: 2 * 60_000,
-  toolCallTimeoutMs: 45_000,
-  approvalWaitTimeoutMs: 30_000,
-  mcpRequestTimeoutMs: 10_000,
-  toolExecutionTimeoutMs: 15_000,
+  turnTimeoutMs: 20 * 60_000,
+  toolCallTimeoutMs: 90_000,
+  approvalWaitTimeoutMs: 10 * 60_000,
+  mcpRequestTimeoutMs: 20_000,
+  toolExecutionTimeoutMs: 30_000,
   maxToolCalls: 32,
   maxRepeatedCalls: 3,
   maxArgumentBytes: HARD_MAX_ARGUMENT_BYTES,
@@ -121,7 +121,9 @@ export interface ToolCallBudget {
 interface CallState {
   owner: ControlState;
   startedNs: bigint;
-  deadlineNs: bigint;
+  /** Starts after approval, so a person reading the card cannot consume the
+   * tool's execution allowance. The fixed turn deadline still covers both. */
+  deadlineNs: bigint | null;
   active: boolean;
   resultBytes: number;
 }
@@ -175,9 +177,9 @@ function finiteInteger(value: unknown, name: string, maximum: number): number {
 function resolveLimits(input: Partial<LocalVmToolTurnLimits> = {}): LocalVmToolTurnLimits {
   const merged = { ...DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS, ...input };
   const limits: LocalVmToolTurnLimits = {
-    turnTimeoutMs: finiteInteger(merged.turnTimeoutMs, "Turn timeout", 10 * 60_000),
+    turnTimeoutMs: finiteInteger(merged.turnTimeoutMs, "Turn timeout", 30 * 60_000),
     toolCallTimeoutMs: finiteInteger(merged.toolCallTimeoutMs, "Tool-call timeout", 5 * 60_000),
-    approvalWaitTimeoutMs: finiteInteger(merged.approvalWaitTimeoutMs, "Approval timeout", 5 * 60_000),
+    approvalWaitTimeoutMs: finiteInteger(merged.approvalWaitTimeoutMs, "Approval timeout", 15 * 60_000),
     mcpRequestTimeoutMs: finiteInteger(merged.mcpRequestTimeoutMs, "MCP timeout", 5 * 60_000),
     toolExecutionTimeoutMs: finiteInteger(merged.toolExecutionTimeoutMs, "Tool execution timeout", 5 * 60_000),
     maxToolCalls: finiteInteger(merged.maxToolCalls, "Tool-call count", HARD_MAX_TOOL_CALLS),
@@ -391,7 +393,7 @@ function callStateFor(control: ApplicationToolTurnControl, budget: ToolCallBudge
   if (!call || call.owner !== state || !call.active) {
     throw new ToolTurnLimitError("closed", "Local VM tool-call budget is unavailable");
   }
-  if (nowNs() >= call.deadlineNs) {
+  if (call.deadlineNs !== null && nowNs() >= call.deadlineNs) {
     return limitDenied(state, "timeout", "tool_call_elapsed", state.limits.toolCallTimeoutMs, state.limits.toolCallTimeoutMs);
   }
   return call;
@@ -548,7 +550,7 @@ export function beginToolCall(
   callBudgets.set(budget, {
     owner: state,
     startedNs,
-    deadlineNs: [state.deadlineNs, startedNs + toNs(state.limits.toolCallTimeoutMs)].reduce((a, b) => a < b ? a : b),
+    deadlineNs: null,
     active: true,
     resultBytes: 0,
   });
@@ -562,10 +564,10 @@ export function approvalDeadlineNs(
   requestedTimeoutMs: number,
 ): bigint {
   const state = stateFor(control);
-  const call = callStateFor(control, budget);
+  callStateFor(control, budget);
   const waitMs = Math.min(requestedTimeoutMs, state.limits.approvalWaitTimeoutMs);
   const candidate = nowNs() + toNs(waitMs);
-  return [state.deadlineNs, call.deadlineNs, candidate].reduce((a, b) => a < b ? a : b);
+  return [state.deadlineNs, candidate].reduce((a, b) => a < b ? a : b);
 }
 
 export function mcpRequestDeadlineNs(
@@ -579,7 +581,7 @@ export function mcpRequestDeadlineNs(
   }
   state.mcpRequests += 1;
   const operationDeadline = nowNs() + toNs(state.limits.mcpRequestTimeoutMs);
-  return [state.deadlineNs, operationDeadline, ...(call ? [call.deadlineNs] : [])]
+  return [state.deadlineNs, operationDeadline, ...(call?.deadlineNs !== null && call?.deadlineNs !== undefined ? [call.deadlineNs] : [])]
     .reduce((a, b) => a < b ? a : b);
 }
 
@@ -589,6 +591,10 @@ export function toolExecutionDeadlineNs(
 ): bigint {
   const state = stateFor(control);
   const call = callStateFor(control, budget);
+  if (call.deadlineNs === null) {
+    const callDeadline = nowNs() + toNs(state.limits.toolCallTimeoutMs);
+    call.deadlineNs = callDeadline < state.deadlineNs ? callDeadline : state.deadlineNs;
+  }
   const executionDeadline = nowNs() + toNs(state.limits.toolExecutionTimeoutMs);
   return [state.deadlineNs, call.deadlineNs, executionDeadline].reduce((a, b) => a < b ? a : b);
 }

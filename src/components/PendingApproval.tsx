@@ -19,7 +19,7 @@ export interface Pending {
   allowKey?: string;
   detail: string;
   held?: string;
-  approvalKind?: "openrouter-local-vm";
+  approvalKind?: "openrouter-local-vm" | "openrouter-local-vm-session";
   modelLabel?: string;
   destination?: "Local VM";
   consequential?: boolean;
@@ -80,10 +80,11 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
         <span className="text-[13px] text-ink">{label(pending.tool)}</span>
         <span className="font-mono text-[11px] text-ink-secondary">{pending.tool}</span>
       </div>
-      {pending.approvalKind === "openrouter-local-vm" && (
+      {(pending.approvalKind === "openrouter-local-vm" || pending.approvalKind === "openrouter-local-vm-session") && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink-secondary">
           <span>Model: {pending.modelLabel ?? "OpenRouter"}</span>
           <span>Destination: {pending.destination ?? "Local VM"}</span>
+          {pending.approvalKind === "openrouter-local-vm-session" && <span>This task only</span>}
           {pending.oneAttempt && <span>One attempt only</span>}
           {pending.expiresAt && (
             <span>Expires in {Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000))} seconds</span>

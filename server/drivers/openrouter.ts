@@ -69,6 +69,9 @@ export interface OpenRouterStreamRequest {
   messages: readonly OpenRouterMessage[];
   /** Presence enables strict tool-transport parsing, including for an empty list. */
   tools?: readonly ProviderToolDefinition[];
+  /** Provider-hosted public web search. It never enters Agent Harbor's MCP
+   * execution path and requires no Local VM lease. */
+  webResearch?: NonNullable<SendTurnInput["integrations"]>["webResearch"];
   signal?: AbortSignal;
   timeoutMs?: number;
   onTextDelta?: (delta: string) => void;
@@ -416,6 +419,30 @@ function openRouterTools(tools: readonly ProviderToolDefinition[]): Array<Record
   return mapped;
 }
 
+function openRouterWebSearch(
+  policy: NonNullable<OpenRouterStreamRequest["webResearch"]>,
+): Record<string, unknown> {
+  if (
+    !Number.isSafeInteger(policy.maxUses) || policy.maxUses < 1 || policy.maxUses > 30 ||
+    !Number.isSafeInteger(policy.maxResults) || policy.maxResults < 1 || policy.maxResults > 25 ||
+    !Number.isSafeInteger(policy.maxTotalResults) || policy.maxTotalResults < policy.maxResults ||
+    policy.maxTotalResults > 250 ||
+    !["low", "medium", "high"].includes(policy.searchContextSize)
+  ) {
+    throw malformedStream("web research policy is invalid");
+  }
+  return {
+    type: "openrouter:web_search",
+    parameters: {
+      engine: "auto",
+      max_uses: policy.maxUses,
+      max_results: policy.maxResults,
+      max_total_results: policy.maxTotalResults,
+      search_context_size: policy.searchContextSize,
+    },
+  };
+}
+
 function openRouterToolResult(result: ProviderToolResult): OpenRouterMessage {
   const parts = result.content.map((item): Record<string, unknown> => {
     if (item.type === "text") return { type: "text", text: item.text };
@@ -495,7 +522,15 @@ export async function streamOpenRouterCompletion(
       messages: request.messages,
       stream: true,
     };
-    if (request.tools?.length) body.tools = openRouterTools(request.tools);
+    const tools = [
+      ...(request.webResearch ? [openRouterWebSearch(request.webResearch)] : []),
+      ...(request.tools?.length ? openRouterTools(request.tools) : []),
+    ];
+    if (tools.length) {
+      assertBoundedJson(tools, MAX_TOOL_DEFINITIONS_BYTES);
+      body.tools = tools;
+    }
+    if (request.webResearch) body.max_tool_calls = request.webResearch.maxUses;
 
     const response = await fetcher(`${request.url.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
@@ -792,7 +827,12 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
       const complete = async (
         messages: OpenRouterMessage[],
         model: string,
-        opts: { stream: boolean; signal?: AbortSignal; onDelta?: (delta: string) => void },
+        opts: {
+          stream: boolean;
+          signal?: AbortSignal;
+          onDelta?: (delta: string) => void;
+          webResearch?: NonNullable<SendTurnInput["integrations"]>["webResearch"];
+        },
       ): Promise<{ text: string; usage: { input: number; output: number } | null }> => {
         if (opts.stream) {
           const result = await streamOpenRouterCompletion({
@@ -800,6 +840,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             apiKey,
             model,
             messages,
+            ...(opts.webResearch ? { webResearch: opts.webResearch } : {}),
             signal: opts.signal,
             onTextDelta: opts.onDelta,
           }, fetcher);
@@ -812,7 +853,13 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             "content-type": "application/json",
             "x-title": "Agent Harbor",
           },
-          body: JSON.stringify({ model, messages, stream: false }),
+          body: JSON.stringify({
+            model,
+            messages,
+            stream: false,
+            ...(opts.webResearch ? { tools: [openRouterWebSearch(opts.webResearch)] } : {}),
+            ...(opts.webResearch ? { max_tool_calls: opts.webResearch.maxUses } : {}),
+          }),
           signal: opts.signal ?? AbortSignal.timeout(DEFAULT_COMPLETION_TIMEOUT_MS),
         });
         if (!response.ok) throw await responseError(response, apiKey);
@@ -845,6 +892,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
         ] as OpenRouterMessage[];
         const selectedModel = turn.model || models.default;
         const serverToolTurn = turn.integrations?.serverToolTurn;
+        const webResearch = turn.integrations?.webResearch;
         try {
           appendNative(threadId, serverToolTurn
             ? {
@@ -891,6 +939,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
                       model: selectedModel,
                       messages: openRouterLoopMessages(loopMessages),
                       ...(tools ? { tools } : {}),
+                      ...(webResearch && tools?.length ? { webResearch } : {}),
                       signal,
                       onTextDelta,
                     }, fetcher),
@@ -927,6 +976,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
                 stream: true,
                 signal: abort.signal,
                 onDelta: delta,
+                ...(webResearch ? { webResearch } : {}),
               });
               text = result.text;
               usage = result.usage;

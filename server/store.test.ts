@@ -85,6 +85,38 @@ describe("Store", () => {
     expect(messages.at(-1)).toMatchObject({ role: "user", text: "hi there" });
   });
 
+  it("persists owner-authored system instructions without changing other agent permissions", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, { systemInstructions: "Use primary sources and explain uncertainty." });
+
+    const reloaded = new Store(selection).bot(bot.id)!;
+    expect(reloaded.systemInstructions).toBe("Use primary sources and explain uncertainty.");
+    expect(reloaded).toMatchObject({ computer: "off", hostAccess: false, openrouterLocalVm: false });
+  });
+
+  it("bounds malformed persisted system instructions without changing other agent settings", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, {
+      modelSelection: { instanceId: "openrouter", model: "vendor/model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
+    const botsFile = join(DATA_DIR, "bots.json");
+    const saved: BotRecord[] = JSON.parse(readFileSync(botsFile, "utf8"));
+    saved[0]!.systemInstructions = "x".repeat(20_001);
+    writeFileSync(botsFile, JSON.stringify(saved));
+
+    const reloaded = new Store(selection).bot(bot.id)!;
+    expect(reloaded.systemInstructions).toHaveLength(20_000);
+    expect(reloaded).toMatchObject({
+      modelSelection: { instanceId: "openrouter", model: "vendor/model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
+  });
+
   it("migrates unambiguous legacy peer grants without guessing duplicate names", () => {
     const store = new Store(selection);
     const requester = store.createBot();

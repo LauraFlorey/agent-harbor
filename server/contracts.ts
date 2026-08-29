@@ -147,6 +147,15 @@ export interface SendTurnInput {
   system?: string;
   /** Per-bot integrations the driver may hand to the agent as tools. */
   integrations?: {
+    /** Provider-hosted, read-only public web research. The harness supplies
+     * bounded policy; providers decide whether their native/server search
+     * implementation can satisfy it. */
+    webResearch?: {
+      maxUses: number;
+      maxResults: number;
+      maxTotalResults: number;
+      searchContextSize: "low" | "medium" | "high";
+    };
     composio?: { url?: string; key: string };
     /** Cloud computer, reached through Agent Harbor's REST-to-MCP adapter. */
     computer?: { kind?: "box"; boxId: string; token: string };

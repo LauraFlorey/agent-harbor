@@ -21,6 +21,7 @@ export interface TeamManifestMember {
   name: string;
   title: string;
   description: string;
+  systemInstructions?: string;
   appearance: {
     color: MausColor;
     mascotExpression?: string;
@@ -52,6 +53,7 @@ interface ExportableBot {
   name: string;
   title: string;
   description: string;
+  systemInstructions?: string;
   color: MausColor;
   mascotExpression?: string | null;
 }
@@ -120,11 +122,17 @@ export function parseTeamManifest(value: unknown): TeamManifestV1 {
       80,
     );
 
+    const systemInstructions = optionalString(
+      raw.systemInstructions,
+      `${field}.systemInstructions`,
+      20_000,
+    );
     return {
       key,
       name: requiredString(raw.name, `${field}.name`, 100),
       title: optionalString(raw.title, `${field}.title`, 200) ?? "",
       description: optionalString(raw.description, `${field}.description`, 4_000) ?? "",
+      ...(systemInstructions ? { systemInstructions } : {}),
       appearance: {
         color: appearance.color as MausColor,
         ...(mascotExpression ? { mascotExpression } : {}),
@@ -195,6 +203,7 @@ export function createTeamManifest(team: ExportableTeam, bots: ExportableBot[]):
       name: bot.name,
       title: bot.title,
       description: bot.description,
+      ...(bot.systemInstructions?.trim() ? { systemInstructions: bot.systemInstructions.trim() } : {}),
       appearance: {
         color: bot.color,
         ...(bot.mascotExpression ? { mascotExpression: bot.mascotExpression } : {}),

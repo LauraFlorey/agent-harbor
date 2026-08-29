@@ -137,7 +137,7 @@ afterEach(async () => {
 });
 
 describe("turn-scoped Local VM tool approval gate", () => {
-  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER, 300_001])(
+  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER, 900_001])(
     "rejects unsafe approval timeout %s",
     (approvalTimeoutMs) => {
       expect(() => createApprovedToolRequests([], async () => ({ callId: "never", content: [], isError: false }), {

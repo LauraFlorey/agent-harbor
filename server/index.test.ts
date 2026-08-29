@@ -219,6 +219,7 @@ describe("harness HTTP API", () => {
 
     const patched = await api("PATCH", `/api/bots/${bot.id}`, {
       name: "Renamed",
+      systemInstructions: "Prefer concise, source-backed answers.",
       pinned: true,
       hostAccess: true,
       openrouterLocalVm: true,
@@ -229,6 +230,7 @@ describe("harness HTTP API", () => {
       pinned: true,
       hostAccess: true,
       openrouterLocalVm: true,
+      systemInstructions: "Prefer concise, source-backed answers.",
     });
 
     const invalidHostAccess = await api("PATCH", `/api/bots/${bot.id}`, { hostAccess: "yes" });
@@ -238,6 +240,13 @@ describe("harness HTTP API", () => {
     const invalidLocalVm = await api("PATCH", `/api/bots/${bot.id}`, { openrouterLocalVm: "yes" });
     expect(invalidLocalVm.status).toBe(400);
     expect(invalidLocalVm.body.error).toContain("openrouterLocalVm");
+
+    const invalidInstructions = await api("PATCH", `/api/bots/${bot.id}`, { systemInstructions: 42 });
+    expect(invalidInstructions.status).toBe(400);
+    const oversizedInstructions = await api("PATCH", `/api/bots/${bot.id}`, {
+      systemInstructions: "x".repeat(20_001),
+    });
+    expect(oversizedInstructions.status).toBe(400);
 
     const missing = await api("PATCH", "/api/bots/does-not-exist", { name: "x" });
     expect(missing.status).toBe(404);
@@ -255,6 +264,7 @@ describe("harness HTTP API", () => {
       name: "Mira",
       title: "Project Lead",
       description: "Coordinates the crew",
+      systemInstructions: "Keep the team focused.",
       color: "purple",
       mascotExpression: "focused",
       autoApprove: true,
@@ -291,6 +301,7 @@ describe("harness HTTP API", () => {
       },
     });
     expect(JSON.stringify(selectedExport.body)).not.toMatch(/autoApprove|alwaysAllow|hostAccess|modelSelection|threadId/);
+    expect(selectedExport.body.team.members[0].systemInstructions).toBe("Keep the team focused.");
     expect((await api("GET", "/api/bots")).body.groups).toHaveLength(roomsBeforeSelectionExport);
     expect((await api("POST", "/api/teams/export", { name: "", memberIds: [first.id] })).status).toBe(400);
     expect((await api("POST", "/api/teams/export", { name: "Empty", memberIds: [] })).status).toBe(400);
@@ -311,6 +322,7 @@ describe("harness HTTP API", () => {
       expect(imported.body.bots.map((bot: { name: string }) => bot.name)).toEqual(["Mira", "Scout"]);
       expect(imported.body.bots.every((bot: { id: string }) => ![first.id, second.id].includes(bot.id))).toBe(true);
       expect(imported.body.bots[0]).not.toHaveProperty("alwaysAllow");
+      expect(imported.body.bots[0].systemInstructions).toBe("Keep the team focused.");
       expect(imported.body.bots[0].hostAccess).toBe(false);
       expect(imported.body.group.memberIds).toEqual(imported.body.bots.map((bot: { id: string }) => bot.id));
       expect(imported.body.group.defaultResponder).toEqual({ kind: "member", botId: imported.body.bots[1].id });

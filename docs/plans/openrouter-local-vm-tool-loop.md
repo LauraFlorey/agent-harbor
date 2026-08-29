@@ -18,9 +18,9 @@ can merely describe intended clicks does not meet the outcome.
 - A provider-neutral, server-owned tool loop for API-backed model engines.
 - OpenRouter Chat Completions tool declarations and streamed tool calls.
 - Cua Driver tools from the explicitly selected Local VM.
-- Existing Agent Harbor approval-card surface with a fresh application-owned
-  Allow once decision for every OpenRouter Local VM call. Remembered approvals
-  and Auto mode do not apply to this path.
+- Existing Agent Harbor approval-card surface with an application-owned,
+  task-scoped routine-action grant. Consequential calls retain fresh
+  one-attempt approval, and unattended work never inherits Auto mode.
 - Strict Local VM lease, cancellation, timeout, and turn limits.
 - Activity chips, screen refreshes, native-event redaction, tests, and setup
   documentation.
@@ -111,8 +111,10 @@ malformed JSON, provider errors, cancellation, and a final text response.
   deletion, account changes, and externally visible messages.
 - Never send secrets or raw credential fields to OpenRouter logs.
 
-**Checkpoint:** no mutating tool reaches the MCP server before an allow
-decision; denial, timeout, and interruption all prevent execution.
+**Initial checkpoint:** no mutating tool reached the MCP server before an allow
+decision; denial, timeout, and interruption all prevented execution. The later
+personal-use policy narrows the distinction to routine versus consequential
+actions while preserving the same application-owned gate.
 
 ### Story 5 — Limits, lease, and observability
 
@@ -140,14 +142,14 @@ the one-bot-at-a-time fence hold.
   settings, permissions, and destinations.
 - Restrict the new loop to direct conversations and the isolated Local VM;
   expose no host, cloud, apps, files, dweb, peer agents, or host environment.
-- Connect application-owned Allow once/Deny/Cancel approval, bounded product
-  states, immediate preview refresh with polling fallback, one-lease lifecycle,
-  provider-neutral continuation, and a global-switch rollback.
+- Connect application-owned approval, bounded product states, immediate preview
+  refresh with polling fallback, one-lease lifecycle, provider-neutral
+  continuation, and a global-switch rollback.
 - Document that passwords, MFA, CAPTCHAs, and other protected input are
   completed manually in the visible Local VM and remain outside prompts.
 
 **Checkpoint:** an explicitly enabled direct Terra agent can use the ready
-Local VM only after current metadata verification and per-call Allow once
+Local VM only after current metadata verification and application-owned
 decisions. Ineligible models remain text-capable, and disabling the global
 switch cancels and drains active OpenRouter Local VM turns without changing
 stored settings.
@@ -193,6 +195,23 @@ release tests use a controlled page rather than a live social account.
 
 ## Roadmap after Story 6
 
+### Personal-use simplification
+
+The app remains owner-controlled without removing existing access. OpenRouter
+agents gain bounded provider-hosted public-web research independently of the
+Local VM. An attended Local VM task asks once for routine actions, while every
+consequential action still asks separately; a new task has no inherited grant.
+Auto mode may pre-authorize only attended routine actions. Operational defaults
+are 20 minutes per turn, 10 minutes for approval, 90 seconds per call after
+approval, 20 seconds per MCP request, and 30 seconds per execution. Each agent
+also has independent owner-authored system instructions in Settings, including
+when it participates in an existing multi-agent room.
+
+These additions do not alter existing providers, model choices, rooms,
+connected apps, host/cloud destinations, or stored permissions. OpenRouter web
+research does not authorize computer use, and the Terra Local VM allowlist
+remains separate from ordinary OpenRouter text chat.
+
 ### Now — complete controlled acceptance
 
 The first live approval-gated inspection passed on August 24, 2026: the Terra
@@ -207,7 +226,7 @@ step at a time:
 
 1. Make the harmless test page reachable only for the isolated test workflow.
 2. Verify visible-content inspection, then separately verify click, scroll, and
-   harmless form typing with Allow once required for every call.
+   harmless form typing after one routine-task approval.
 3. Verify a consequential mock action cannot execute before approval.
 4. Verify interruption, restart cleanup, Computer Off, and global-switch
    rollback exactly as listed in the acceptance test.

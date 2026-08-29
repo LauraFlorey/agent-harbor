@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalDeadlineNs,
   beginToolCall,
   createToolTurnControl,
   DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS,
@@ -8,6 +9,7 @@ import {
   mcpRequestDeadlineNs,
   recordToolResult,
   toolArgumentByteLimit,
+  toolExecutionDeadlineNs,
   toolResultByteLimit,
   type LocalVmToolTurnLimits,
   type ToolCallBudget,
@@ -38,11 +40,11 @@ function ownerWith(overrides: Partial<LocalVmToolTurnLimits> = {}): ToolTurnCont
 describe("Local VM tool-turn operational limits", () => {
   it("publishes the reviewed default ceilings", () => {
     expect(DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS).toEqual({
-      turnTimeoutMs: 120_000,
-      toolCallTimeoutMs: 45_000,
-      approvalWaitTimeoutMs: 30_000,
-      mcpRequestTimeoutMs: 10_000,
-      toolExecutionTimeoutMs: 15_000,
+      turnTimeoutMs: 1_200_000,
+      toolCallTimeoutMs: 90_000,
+      approvalWaitTimeoutMs: 600_000,
+      mcpRequestTimeoutMs: 20_000,
+      toolExecutionTimeoutMs: 30_000,
       maxToolCalls: 32,
       maxRepeatedCalls: 3,
       maxArgumentBytes: 262_144,
@@ -77,9 +79,9 @@ describe("Local VM tool-turn operational limits", () => {
   });
 
   it.each([
-    ["turnTimeoutMs", 600_001],
+    ["turnTimeoutMs", 1_800_001],
     ["toolCallTimeoutMs", 300_001],
-    ["approvalWaitTimeoutMs", 300_001],
+    ["approvalWaitTimeoutMs", 900_001],
     ["mcpRequestTimeoutMs", 300_001],
     ["toolExecutionTimeoutMs", 300_001],
     ["maxToolCalls", 257],
@@ -93,6 +95,25 @@ describe("Local VM tool-turn operational limits", () => {
   ] as const)("rejects oversized %s", (field, value) => {
     expect(() => createToolTurnControl({ limits: { [field]: value } }))
       .toThrow(expect.objectContaining({ code: "closed" }));
+  });
+
+  it("starts the per-call execution clock only after approval", async () => {
+    const owner = ownerWith({
+      turnTimeoutMs: 500,
+      toolCallTimeoutMs: 30,
+      approvalWaitTimeoutMs: 200,
+      toolExecutionTimeoutMs: 20,
+    });
+    const budget = beginToolCall(owner.control, "click", "1");
+    const approvalDeadline = approvalDeadlineNs(owner.control, budget, 200);
+    await new Promise((resolve) => setTimeout(resolve, 45));
+
+    expect(approvalDeadline).toBeGreaterThan(process.hrtime.bigint());
+    expect(() => toolExecutionDeadlineNs(owner.control, budget)).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(() => toolResultByteLimit(owner.control, budget))
+      .toThrow(expect.objectContaining({ code: "timeout" }));
+    owner.dispose();
   });
 
   it("allows every byte and count ceiling exactly, then denies the next charge", () => {
