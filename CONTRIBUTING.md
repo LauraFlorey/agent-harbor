@@ -40,6 +40,8 @@ pnpm package:linux # Ubuntu x64 .deb + AppImage; no Swift required
 ```
 
 For Ubuntu installation and real desktop checks, see [`docs/linux-desktop.md`](docs/linux-desktop.md).
+For packaging, release-state terminology, and manual publishing gates, see
+[`docs/deployment.md`](docs/deployment.md).
 
 ## Repo map
 
@@ -128,5 +130,7 @@ process could read them.
 - [ ] No `dist-server/` churn, no lockfile churn beyond your actual dependency change
 - [ ] macOS-only code is platform-gated; nothing breaks the packaged app
 - [ ] UI changes include before/after screenshots
+- [ ] Capability, packaging, or release changes update the README, relevant feature guide, and
+      [`docs/plans/current-handoff.md`](docs/plans/current-handoff.md) without overstating live acceptance
 
 By contributing you agree your contributions are licensed under the [MIT License](LICENSE).

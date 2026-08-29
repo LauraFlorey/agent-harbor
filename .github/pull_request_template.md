@@ -22,3 +22,4 @@ big changes should have an issue agreeing on the approach before code.
 - [ ] No `dist-server/` edits (it's build output)
 - [ ] macOS-only code is platform-gated; no `shell: true` / cmd.exe string-building
 - [ ] No secrets in logs, responses, events, or argv
+- [ ] Capability or release changes update the relevant README/guide and current handoff

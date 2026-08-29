@@ -11,6 +11,23 @@ This sprint is complete only when the model can inspect and operate a browser
 inside the Local VM. Text chat alone, a mocked tool response, or a model that
 can merely describe intended clicks does not meet the outcome.
 
+## Current checkpoint
+
+Stories 1–6 and the first Local VM acceptance repair are implemented in the
+history leading to local personal-use checkpoint `29a679a` on branch
+`codex/personal-action-capabilities`. That branch also includes bounded
+OpenRouter web research, one routine-action approval per attended task, doubled
+operational time limits, per-agent system instructions, and the model-picker
+mouse-scroll repair. It is not pushed, merged, packaged for release, or
+released.
+
+Automated verification and the core development runtime are green. An earlier
+controlled run at `cf11c7c` proved one complete approval-gated Local VM tool
+call, but the full controlled acceptance sequence below remains incomplete. A
+later turn reported **“Local VM lease ended before the turn completed.”** That
+failure remains an unresolved acceptance risk and must not be hidden by the
+new time limits.
+
 ## Scope
 
 ### In scope
@@ -190,8 +207,10 @@ release tests use a controlled page rather than a live social account.
 - No credentials, tool arguments containing secrets, or raw screenshots enter
   native provider logs.
 - Documentation states the supported destinations and model limitations.
-- The feature remains behind capability checks until the complete acceptance
-  test passes; no partial implementation advertises computer support.
+- The feature remains globally and per-agent default-off behind capability
+  checks. Broader release claims wait for the complete acceptance test; an
+  owner-enabled development checkpoint must not be described as generally
+  released computer support.
 
 ## Roadmap after Story 6
 
@@ -236,14 +255,29 @@ step at a time:
 Stop and re-evaluate before adding another compatibility repair if the live
 path exposes a new architectural failure after the successful checkpoint.
 
+The current acceptance run must also verify the personal-use additions without
+conflating them with Local VM authority:
+
+- bounded public-web research works for an ordinary OpenRouter text turn and
+  does not acquire a Local VM lease;
+- one explicit attended-task decision covers only routine Local VM actions for
+  that task, while a consequential mock action still pauses separately;
+- the 20-minute turn, 10-minute approval, 90-second post-approval call,
+  20-second MCP request, and 30-second execution limits remain bounded by the
+  original monotonic turn deadline; and
+- per-agent system instructions apply in direct and room conversations without
+  rewriting provider, model, permission, connected-app, or destination
+  settings.
+
 ### Next — preserve and review the release candidate
 
-- Keep the diagnostic checkpoint separate from the Story 6 baseline until the
-  complete acceptance record is reviewed.
+- Keep the exact implementation and documentation commits identifiable until
+  the complete acceptance record is reviewed.
 - Update the public-facing status only after every required acceptance item is
   observed, not merely configured or tested with fixtures.
-- Merge and push only after an explicit final review of the acceptance record,
-  branch scope, and rollback behavior.
+- Push, merge, package, and release as distinct owner-approved steps after an
+  explicit final review of branch scope, rollback behavior, and the acceptance
+  record. See [Deployment and release](../deployment.md).
 
 ### Later — evaluate OpenRouter Spawn
 

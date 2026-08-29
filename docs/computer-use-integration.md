@@ -5,6 +5,14 @@ browser use, out of the box, with no separate installs. Based on a survey of
 OSS chat-app MCP hosts, macOS control servers, browser-automation stacks, and
 the local `cua` / `axstream` code on this machine.
 
+> **Historical design record.** This document describes the host-Mac CUA and
+> embedded-browser direction considered on August 12. It does not grant current
+> OpenRouter turns host access and is not the operational runbook for the
+> isolated Docker-backed Local VM. For current behavior and acceptance status,
+> use [OpenRouter](openrouter.md), the
+> [Local VM sprint plan](plans/openrouter-local-vm-tool-loop.md), and the
+> [current handoff](plans/current-handoff.md).
+
 ## TL;DR architecture
 
 ```

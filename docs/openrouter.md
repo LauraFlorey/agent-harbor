@@ -101,3 +101,23 @@ values must never be pasted into chat or entered by the model.
 OpenRouter model availability, pricing, limits, and retention policies can
 change. Agent Harbor discovers the live account catalog and leaves those mutable
 details to [OpenRouter's documentation](https://openrouter.ai/docs/quickstart).
+
+## Verification status
+
+The current personal-use implementation checkpoint is local commit `29a679a`.
+Its focused tests, full suite, updater tests, type checking, production build,
+Electron checks, and integrity checks passed, and the core development runtime
+started cleanly. The branch is not pushed, merged, packaged for release, or
+published.
+
+One earlier controlled run proved an approval-gated Terra tool call inside the
+Local VM, but the complete controlled-page acceptance sequence remains open. A
+later turn also reported **“Local VM lease ended before the turn completed”**;
+that lifecycle failure has not yet been resolved against the current
+checkpoint. The provider-hosted web-research request and revised routine-task
+approval policy have automated coverage but have not received a live
+credentialed acceptance run in this documentation update.
+
+See [Current handoff](plans/current-handoff.md) for the exact repository and
+runtime state, and [Deployment and release](deployment.md) for the gates that
+separate source verification from a release.

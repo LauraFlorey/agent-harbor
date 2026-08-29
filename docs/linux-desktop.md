@@ -3,6 +3,10 @@
 Agent Harbor has an Ubuntu 24.04 LTS x86_64 desktop beta. The Electron package embeds the harness server, so
 installed builds do not require Node, pnpm, Swift, or a terminal at runtime.
 
+See [Deployment and release](deployment.md) for the cross-platform state definitions, required verification,
+artifact handling, and manual release gate. A successful Linux package or CI smoke test is not by itself a
+published or installed release.
+
 ## What works
 
 - The native Electron window and embedded Agent Harbor server on GNOME Xorg and GNOME Wayland.

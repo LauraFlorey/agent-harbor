@@ -253,6 +253,11 @@ OpenRouter, Composio, and Box are third-party services with their own accounts a
 calls and Box cloud-computer usage may incur charges. See [`docs/openrouter.md`](docs/openrouter.md) for
 the OpenRouter setup and current capability boundary.
 
+For operational status and shipping boundaries, use the
+[current handoff](docs/plans/current-handoff.md) and the
+[deployment and release guide](docs/deployment.md). They distinguish a local implementation or package from
+a pushed, merged, released, and installed build.
+
 ```sh
 pnpm typecheck     # app + server
 pnpm test          # unit, driver, API, and desktop capability tests
@@ -278,10 +283,15 @@ dedicated receiver through a hosted relay or a tool such as Tailscale Funnel.
 
 ## Status
 
-Early but real — the loop works end to end: message → agent → streamed reply → tools → approvals →
-computer use. Source builds are working on macOS, Windows, and Ubuntu 24.04 x64; signed Agent Harbor releases
-are not published yet. Rough edges to expect: hosted/mobile connectivity is still being built, and webhook
-triggers currently use the local receiver rather than an always-on hosted relay.
+Early but real — core message → agent → streamed reply → tools → approvals → computer-use paths are
+implemented, and source builds work on macOS, Windows, and Ubuntu 24.04 x64. The experimental OpenRouter
+Local VM loop has automated coverage and one earlier controlled end-to-end tool run, but its complete
+controlled acceptance sequence remains unfinished. The latest personal-use approval, web-research, timing,
+and system-instruction changes are currently a local checkpoint rather than a merged or released build; see
+the [current handoff](docs/plans/current-handoff.md) for exact evidence and outstanding risks.
+
+Signed Agent Harbor releases are not published yet. Rough edges to expect: hosted/mobile connectivity is
+still being built, and webhook triggers currently use the local receiver rather than an always-on hosted relay.
 Voice needs an ElevenLabs key, and calls are macOS-only for now (they ride the same on-device dictation as
 the composer mic) — see [`docs/voice-mode.md`](docs/voice-mode.md) for the design and the known gaps.
 
