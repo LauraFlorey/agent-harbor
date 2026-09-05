@@ -50,6 +50,8 @@ interface TurnLeaseState {
   handle: LocalVmTurnLeaseHandle;
   controller: AbortController;
   expiresAtNs: bigint;
+  renewalNs: bigint;
+  maxExpiresAtNs: bigint;
   timer: ReturnType<typeof setTimeout>;
   active: boolean;
   expired: boolean;
@@ -201,6 +203,8 @@ export class LocalVmLease {
       handle,
       controller,
       expiresAtNs: monotonicNow() + BigInt(Math.ceil(this.ttlMs * 1_000_000)),
+      renewalNs: BigInt(Math.ceil(this.ttlMs * 1_000_000)),
+      maxExpiresAtNs: monotonicNow() + BigInt(Math.ceil(MAX_LEASE_TTL_MS * 1_000_000)),
       timer: undefined as unknown as ReturnType<typeof setTimeout>,
       active: true,
       expired: false,
@@ -260,6 +264,32 @@ function activeTurnState(handle: LocalVmTurnLeaseHandle, binding: LocalVmTurnBin
     throw new LocalVmLeaseError("lease_mismatch", "Local VM turn lease binding does not match");
   }
   return state;
+}
+
+/** Renews the turn lease while the turn is actively progressing, so a live
+ * turn is not aborted mid-action. The extension is capped by an absolute
+ * ceiling fixed at acquisition, so a turn that stops progressing, or a hung
+ * turn that never progresses, still expires and fails closed. */
+export function renewLocalVmTurnLease(
+  handle: LocalVmTurnLeaseHandle,
+  binding: LocalVmTurnBinding,
+): boolean {
+  let state: TurnLeaseState;
+  try {
+    state = activeTurnState(handle, binding);
+  } catch {
+    return false;
+  }
+  const now = monotonicNow();
+  const target = now + state.renewalNs;
+  const capped = target > state.maxExpiresAtNs ? state.maxExpiresAtNs : target;
+  if (capped <= state.expiresAtNs) return false;
+  state.expiresAtNs = capped;
+  clearTimeout(state.timer);
+  const remainingMs = Math.max(0, Math.ceil(Number(capped - now) / 1_000_000));
+  state.timer = setTimeout(state.expire, remainingMs);
+  state.timer.unref?.();
+  return true;
 }
 
 /** Internal server boundary used immediately before child creation. */

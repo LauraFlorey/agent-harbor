@@ -1,6 +1,6 @@
 # Current handoff
 
-Updated August 29, 2026 at the local personal-capabilities checkpoint.
+Updated August 30, 2026 after confirming the private personal-product scope.
 
 ## Executive status
 
@@ -8,17 +8,22 @@ Updated August 29, 2026 at the local personal-capabilities checkpoint.
 - **Current branch:** `codex/personal-action-capabilities`
 - **Current implementation commit:**
   `29a679a82dc4226c152dee87f6f3aad4adea9ede`
-- **Remote state:** the branch has no tracking reference and does not exist on
-  the private origin. `origin/main` remains at
+- **Documentation commit:**
+  `4403d90ef5ac080e47bf1781e7077f00d1be00f8`
+- **Documentation state:** the August 30 personal-scope revisions are prepared
+  locally and intentionally uncommitted. They now include repository-native
+  `VISION.md`, `ARCHITECTURE.md`, and `ROADMAP.md` documents.
+- **Remote state:** the branch is pushed and tracks
+  `origin/codex/personal-action-capabilities`. `origin/main` remains at
   `3b5e23b2be95b1952e09b260f385a890d1610c53`.
-- **Pull requests and releases:** none open or published when this handoff was
-  refreshed.
-- **Documentation state:** this handoff and its companion documentation refresh
-  are intentionally uncommitted for review.
-- **Runtime state:** the unified development launcher is running the committed
-  `29a679a` checkpoint. No restart was performed for this documentation work.
-- **Release state:** not merged, packaged for release, signed, notarized,
-  published, or installed as a release.
+- **Working tree baseline:** clean except for the pre-existing untracked
+  `.agents/` owner directory before this scope-documentation update.
+- **Runtime state:** the last verified unified development runtime used
+  `29a679a` on August 29. It was not restarted or re-accepted for this scope update.
+- **Promotion state:** not merged into private `main`, packaged for personal
+  installation, installed as a promoted checkpoint, or recovery-tested.
+- **Product scope:** Agent Harbor is for Laura's private personal use. No public
+  or open-source Agent Harbor release is currently planned.
 
 The pre-existing untracked `.agents/` directory is owner material and is not
 part of the current change. In particular, its Windows release skill must not
@@ -69,13 +74,13 @@ or startup cascade appeared. The preserved launcher log is:
 
 `/tmp/agent-harbor-dev-20260829T130028-0500.log`
 
-That is a local source-runtime baseline, not release evidence.
+That is a local source-runtime baseline, not personal-installation or recovery evidence.
 
 ## Live acceptance state
 
 An earlier controlled Story 6 run at checkpoint `cf11c7c` proved one complete
 approval-gated Local VM tool path: Terra requested a discovered tool, Laura
-allowed it once, the tool ran inside the isolated Local VM, and the model
+approved the request, the tool ran inside the isolated Local VM, and the model
 returned a final description. The broader screenshot, controlled-page click,
 scroll, typing, consequential-action, interruption, restart-cleanup, Computer
 Off, and global-switch rollback sequence remains incomplete.
@@ -110,20 +115,33 @@ remains completely outside this repository and handoff.
 - Passwords, MFA, CAPTCHAs, and other protected input stay manual in the
   visible destination and must not be put into chat.
 
+## Current product direction
+
+Agent Harbor is the private control plane for Laura's agents, permissions,
+tools, environments, collaboration, approvals, and run evidence. Life OS and
+the Jinx Memory System remain separate applications that may integrate through
+explicit APIs and events. Jinx may be the Chief of Staff personality across
+the ecosystem, but neither Jinx nor Life OS may bypass Harbor's policy engine.
+
+Public branding, contributor onboarding, generalized support promises, public
+release signing, and open-source launch work are indefinitely deferred unless
+Laura explicitly revives that goal. Upstream MIT attribution remains intact.
+
 ## Safest next step
 
-1. Review this documentation-only diff and confirm that it matches the desired
-   personal-app policy.
-2. If approved, commit this documentation refresh as a focused second commit,
-   then push the current branch so the implementation and its handoff remain
-   linked; do not merge or release merely because the automated suite passed.
-3. Then run one controlled, non-sensitive acceptance sequence against the exact
+1. Run one controlled, non-sensitive acceptance sequence against the exact
    pushed commit. Start with bounded OpenRouter web research, verify system
    instructions in a direct conversation and a room, and only then prepare the
    isolated Local VM and test one routine task.
-4. If the lease error recurs, preserve the first error and lifecycle evidence
+2. If the lease error recurs, preserve the first error and lifecycle evidence
    and diagnose it before retrying or broadening access.
+3. Review the completed acceptance evidence and explicitly decide whether to
+   merge the branch into private `main`. Do not replace Laura's working build
+   merely because the automated suite passed.
+4. Keep `VISION.md`, `ARCHITECTURE.md`, and `ROADMAP.md` synchronized as the
+   personal system changes; do not let public-product or premature vendor
+   experiments re-enter the active plan without Laura's explicit decision.
 
-The detailed release gates are in [Deployment and release](../deployment.md),
+The private installation gates are in [Private installation, packaging, and recovery](../deployment.md),
 and the remaining Local VM acceptance sequence is in
 [OpenRouter Local VM tool loop](openrouter-local-vm-tool-loop.md).

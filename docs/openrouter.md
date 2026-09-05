@@ -104,11 +104,13 @@ details to [OpenRouter's documentation](https://openrouter.ai/docs/quickstart).
 
 ## Verification status
 
-The current personal-use implementation checkpoint is local commit `29a679a`.
+The current personal-use implementation is commit `29a679a`, with the matching
+documentation checkpoint at `4403d90`.
 Its focused tests, full suite, updater tests, type checking, production build,
 Electron checks, and integrity checks passed, and the core development runtime
-started cleanly. The branch is not pushed, merged, packaged for release, or
-published.
+started cleanly. The private branch is pushed and tracks
+`origin/codex/personal-action-capabilities`; it is not merged into `origin/main`
+or installed as a promoted personal build. No public release is planned.
 
 One earlier controlled run proved an approval-gated Terra tool call inside the
 Local VM, but the complete controlled-page acceptance sequence remains open. A
@@ -119,5 +121,5 @@ approval policy have automated coverage but have not received a live
 credentialed acceptance run in this documentation update.
 
 See [Current handoff](plans/current-handoff.md) for the exact repository and
-runtime state, and [Deployment and release](deployment.md) for the gates that
-separate source verification from a release.
+runtime state, and [Private installation, packaging, and recovery](deployment.md)
+for the gates that separate source verification from an installed personal checkpoint.

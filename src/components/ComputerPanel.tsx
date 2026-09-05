@@ -482,7 +482,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
                 <div>
                   <div className="text-[13px] font-medium text-ink">OpenRouter Local VM</div>
                   <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">
-                    Experimental and separate from ordinary OpenRouter text chat. Every tool call still requires Allow once.
+                    Experimental and separate from ordinary OpenRouter text chat. Routine actions use a task-scoped approval; consequential actions ask separately.
                   </div>
                 </div>
                 <button

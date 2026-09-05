@@ -6,7 +6,7 @@
 
 **Your own team of AI bots, in a chat app.**
 
-<sub>A local-first, open-source agent workspace — bring your own agents and choose how each one works.</sub>
+<sub>A local-first, private personal agent workspace — bring your own agents and choose how each one works.</sub>
 
 Every bot in the sidebar is a real agent — Claude or Codex running locally under the hood — with its own
 personality, its own model, its own cloud computer, and its own connected apps.
@@ -16,11 +16,10 @@ Talk to them like contacts. Watch them work. Approve what matters.
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![Electron](https://img.shields.io/badge/Electron-macOS%20%C2%B7%20Windows%20%C2%B7%20Ubuntu-2B2E3A?logo=electron&logoColor=9FEAF9)
 ![Agents](https://img.shields.io/badge/agents-Claude%20·%20Codex-d97757)
-![PRs](https://img.shields.io/badge/PRs-welcome-38d591)
 
 <br>
 
-<sub>Development preview: build from source while Agent Harbor packaging and release signing are established.</sub>
+<sub>Private personal build: run from source while installation, backup, and recovery are hardened for Laura's use.</sub>
 
 <br>
 <br>
@@ -33,9 +32,10 @@ Talk to them like contacts. Watch them work. Approve what matters.
 
 ## Why
 
-One assistant in one box is the wrong shape for agents. Agent Harbor is an open-source take on **Grok Bot** —
+One assistant in one box is the wrong shape for agents. Agent Harbor is Laura's private personal fork of the
+open-source **OpenMausBot** project —
 it keeps the idea (AI as a *messaging app*: a roster of bots you chat with, each with its own personality,
-memory of its thread, model, computer, and apps) and rebuilds it open, local-first, and on the agents you
+memory of its thread, model, computer, and apps) and rebuilds it local-first and on the agents you
 already have:
 
 - **Bring your own agents.** Bots run on the `claude`, `codex`, and `grok` CLIs installed on your own machine
@@ -47,6 +47,9 @@ already have:
 
 The legacy data path and other machine-facing identifiers intentionally remain stable during the visible
 rebrand. See the [Agent Harbor rebrand boundary](docs/agent-harbor-rebrand.md) for the compatibility contract.
+
+The canonical private-product direction is recorded in [Vision](VISION.md),
+[Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).
 
 ## Features
 
@@ -193,7 +196,8 @@ branches throughout the application.
 
 ## Quick start
 
-Agent Harbor does not publish signed binaries yet. Build the desktop app from source while the release channel is prepared.
+Agent Harbor is not planned for public distribution. Build and run the private personal desktop app from source;
+create a local package only when a tested installation or recovery checkpoint is useful for Laura's devices.
 
 **From source:**
 
@@ -253,10 +257,10 @@ OpenRouter, Composio, and Box are third-party services with their own accounts a
 calls and Box cloud-computer usage may incur charges. See [`docs/openrouter.md`](docs/openrouter.md) for
 the OpenRouter setup and current capability boundary.
 
-For operational status and shipping boundaries, use the
+For operational status and private installation boundaries, use the
 [current handoff](docs/plans/current-handoff.md) and the
-[deployment and release guide](docs/deployment.md). They distinguish a local implementation or package from
-a pushed, merged, released, and installed build.
+[private installation and recovery guide](docs/deployment.md). They distinguish a local implementation or package from
+a pushed, merged, installed, and verified personal checkpoint.
 
 ```sh
 pnpm typecheck     # app + server
@@ -284,25 +288,27 @@ dedicated receiver through a hosted relay or a tool such as Tailscale Funnel.
 ## Status
 
 Early but real — core message → agent → streamed reply → tools → approvals → computer-use paths are
-implemented, and source builds work on macOS, Windows, and Ubuntu 24.04 x64. The experimental OpenRouter
+implemented, and source builds work on macOS, Windows, and Ubuntu 24.04 x64. Laura's current personal workflow
+is the product priority; other platform results are technical evidence, not a public support promise. The experimental OpenRouter
 Local VM loop has automated coverage and one earlier controlled end-to-end tool run, but its complete
 controlled acceptance sequence remains unfinished. The latest personal-use approval, web-research, timing,
-and system-instruction changes are currently a local checkpoint rather than a merged or released build; see
+and system-instruction changes are currently a pushed private checkpoint rather than a merged or installed build; see
 the [current handoff](docs/plans/current-handoff.md) for exact evidence and outstanding risks.
 
-Signed Agent Harbor releases are not published yet. Rough edges to expect: hosted/mobile connectivity is
+No public or open-source Agent Harbor release is currently planned. Rough edges to expect: hosted/mobile connectivity is
 still being built, and webhook triggers currently use the local receiver rather than an always-on hosted relay.
 Voice needs an ElevenLabs key, and calls are macOS-only for now (they ride the same on-device dictation as
 the composer mic) — see [`docs/voice-mode.md`](docs/voice-mode.md) for the design and the known gaps.
 
-Contributions welcome — the driver SPI in [`server/contracts.ts`](server/contracts.ts) is deliberately
-small; adding a provider is one file in [`server/drivers/`](server/drivers/) plus a one-line registration.
+The driver SPI in [`server/contracts.ts`](server/contracts.ts) remains deliberately small so Laura can add or
+replace providers without reshaping the personal system.
 
 ## License
 
 [MIT](LICENSE) © 2026 Milind Soni, Laura Florey, and contributors.
 
-Agent Harbor is based on the MIT-licensed [OpenMausBot](https://github.com/milind-soni/OpenMausBot)
-project and preserves its attribution. Agent Harbor is an independent, open-source project inspired by Grok Bot. It is
+Agent Harbor is a private personal fork based on the MIT-licensed
+[OpenMausBot](https://github.com/milind-soni/OpenMausBot) project and preserves its attribution. No public
+Agent Harbor distribution is currently planned. It is
 not affiliated with, endorsed by, or associated with xAI; "Grok" is a trademark
 of its respective owner.

@@ -37,6 +37,7 @@ export interface AppConfig {
 export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
 const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
+export const CONSEQUENTIAL_LOG_FILE = join(DATA_DIR, "consequential-log.ndjson");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 const PRIVATE_DIR_MODE = 0o700;

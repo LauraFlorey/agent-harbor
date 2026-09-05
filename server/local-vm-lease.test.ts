@@ -6,6 +6,7 @@ import {
   LocalVmLease,
   localVmTurnLeaseBinding,
   localVmTurnLeaseSignal,
+  renewLocalVmTurnLease,
 } from "./local-vm-lease.ts";
 
 describe("LocalVmLease", () => {
@@ -165,6 +166,35 @@ describe("LocalVmLease", () => {
     const replacement = lease.acquireTurn({ roomId: "room-b", turnId: "turn-b", sessionId: "session-b" });
     expect(replacement).not.toBe(handle);
     expect(lease.releaseTurn(replacement, { roomId: "room-b", turnId: "turn-b", sessionId: "session-b" })).toBe(true);
+  });
+
+  it("renews an actively progressing turn past its base TTL", async () => {
+    const lease = new LocalVmLease(50);
+    const binding = { roomId: "room-a", turnId: "turn-a", sessionId: "session-a" } as const;
+    const handle = lease.acquireTurn(binding);
+    const signal = localVmTurnLeaseSignal(handle, binding);
+
+    for (let i = 0; i < 4; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(renewLocalVmTurnLease(handle, binding)).toBe(true);
+    }
+    // ~80ms elapsed, well past the base TTL, but renewal kept the fence alive.
+    expect(signal.aborted).toBe(false);
+
+    // Stop renewing: the turn expires within a base-TTL window and fails closed.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(signal.reason).toMatchObject({ code: "lease_expired" });
+    expect(renewLocalVmTurnLease(handle, binding)).toBe(false);
+    expect(lease.releaseTurn(handle, binding)).toBe(true);
+  });
+
+  it("refuses to renew a turn lease for a mismatched binding", () => {
+    const lease = new LocalVmLease(1_000);
+    const binding = { roomId: "room-a", turnId: "turn-a", sessionId: "session-a" } as const;
+    const handle = lease.acquireTurn(binding);
+
+    expect(renewLocalVmTurnLease(handle, { roomId: "room-b", turnId: "turn-b", sessionId: "session-b" })).toBe(false);
+    expect(lease.releaseTurn(handle, binding)).toBe(true);
   });
 
   it("fails closed on pre-cancellation and retains an active fence until cleanup", () => {

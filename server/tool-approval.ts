@@ -35,7 +35,11 @@ const SAFE_HMAC = /^[0-9a-f]{64}$/;
 const PROTECTED_INPUT = /(?:api.?key|authorization|cookie|credential|password|passcode|one.?time|\botp\b|\bmfa\b|secret|token|card.?number|\bcvv\b|\bssn\b)/i;
 const PROTECTED_VALUE = /(?:\bbearer\s+[a-z0-9._~+/=-]+|\bsk-[a-z0-9_-]+|\bgh[pousr]_[a-z0-9]+|\bAKIA[A-Z0-9]{12,}|\beyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+)/i;
 const TEXT_ENTRY_TOOL = /(?:^|[_-])(?:fill|input|paste|type|write)(?:$|[_-])/i;
-const HIGH_IMPACT = /(?:account|credential|delete|message|password|publish|purchase|secret|token)/i;
+// Effect words that make a call high-impact, matched with word boundaries and
+// kept narrow. Broad words like "account"/"message" caused false positives that
+// blocked ordinary reversible actions; genuinely destructive or sensitive
+// argument content is still caught by looksDestructive/looksSensitive.
+const HIGH_IMPACT = /\b(?:credential|delete|password|publish|purchase|secret|token)\b/i;
 const POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 type ToolApprovalFailureCode =

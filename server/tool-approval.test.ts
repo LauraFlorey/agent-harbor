@@ -228,6 +228,24 @@ describe("turn-scoped Local VM tool approval gate", () => {
     await assertReleased(dir);
   });
 
+  it("does not flag a reversible call whose arguments only mention messages or accounts", async () => {
+    const { dir, endpoint } = await fakeEndpoint();
+    const app = applicationChannel();
+    await withLeasedMcpClient(endpoint, {}, async (client) => {
+      const requests = client.createToolApprovalSession({ turnId: "turn-reversible", approval: app.channel });
+      const execution = requests.execute({
+        id: "call-reversible",
+        name: "json_shapes",
+        arguments: { value: "summarize the newest message in the account inbox" },
+      });
+      const [request] = await opened(app.events);
+      expect(request?.consequential).toBe(false);
+      expect(approve(app.decisions, request!.challenge)).toBe(true);
+      await execution;
+    });
+    await assertReleased(dir);
+  });
+
   it("shows bounded safe details while redacting nested protected input", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();

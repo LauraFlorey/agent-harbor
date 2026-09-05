@@ -2,7 +2,7 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { dirname, extname, join, sep } from "node:path";
@@ -21,7 +21,7 @@ import {
   setupCommands,
   type LifecycleAction,
 } from "./container-computer.ts";
-import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
+import { ensureDirs, instanceConfigs, loadConfig, saveConfig, CONSEQUENTIAL_LOG_FILE, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
@@ -454,6 +454,19 @@ function localVmAction(tool: string): string {
   return bare ? `Use ${bare.slice(0, 100)} in the isolated desktop` : "Use a tool in the isolated desktop";
 }
 
+function logConsequentialDecision(info: {
+  tool: string;
+  consequential: boolean;
+  unattended: boolean;
+  authorized: boolean;
+}): void {
+  try {
+    appendFileSync(CONSEQUENTIAL_LOG_FILE, JSON.stringify({ at: Date.now(), ...info }) + "\n", { mode: 0o600 });
+  } catch {
+    // A tuning log must never affect the approval decision.
+  }
+}
+
 function createLocalVmApprovalChannel(
   bot: NonNullable<ReturnType<typeof store.bot>>,
   threadId: string,
@@ -466,7 +479,15 @@ function createLocalVmApprovalChannel(
       // Auto mode is an owner-controlled standing decision. Otherwise the
       // first routine action asks once and grants only this turn's closure.
       // Consequential calls always keep their own fresh approval.
-      if (routineAuthorization.shouldAuthorize(event.consequential, isUnattended(bot.id))) {
+      const unattended = isUnattended(bot.id);
+      const authorized = routineAuthorization.shouldAuthorize(event.consequential, unattended);
+      logConsequentialDecision({
+        tool: event.tool,
+        consequential: event.consequential,
+        unattended,
+        authorized,
+      });
+      if (authorized) {
         if (!decisions.resolve({ challenge: event.challenge, behavior: "allow" })) {
           throw new Error("Local VM routine action authorization failed");
         }

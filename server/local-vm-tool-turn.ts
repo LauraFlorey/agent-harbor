@@ -5,6 +5,7 @@ import {
   localVmTurnLeaseBinding,
   localVmTurnLeaseSignal,
   releaseLocalVmTurnLease,
+  renewLocalVmTurnLease,
   type LocalVmTurnBinding,
   type LocalVmTurnLeaseHandle,
 } from "./local-vm-lease.ts";
@@ -89,13 +90,18 @@ export async function runLocalVmToolTurn<T>(
   options: LocalVmToolTurnOptions,
   providerTurn: (context: LocalVmToolTurnContext) => Promise<T>,
 ): Promise<T> {
+  let handle: LocalVmTurnLeaseHandle | null = null;
+  let leasedBinding: LocalVmTurnBinding | null = null;
   const owner = createToolTurnControl({
     ...(options.limits ? { limits: options.limits } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.observe ? { observe: options.observe } : {}),
+    observe: (event) => {
+      // Renew the turn lease on genuine progress so an actively working turn
+      // is not aborted mid-action; a turn that stops emitting still expires.
+      if (handle && leasedBinding) renewLocalVmTurnLease(handle, leasedBinding);
+      options.observe?.(event);
+    },
   });
-  let handle: LocalVmTurnLeaseHandle | null = null;
-  let leasedBinding: LocalVmTurnBinding | null = null;
   let client: TurnScopedMcpClient | null = null;
   let requests: ApprovedToolRequests | null = null;
   let leaseAbort: (() => void) | null = null;

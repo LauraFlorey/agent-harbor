@@ -34,12 +34,13 @@ before sharing exploit details.
   `openai/gpt-5.6-terra` ID, current account metadata, a direct conversation,
   an explicit Local VM destination, and a ready isolated VM. Metadata can
   revoke but never grant authority beyond that exact manifest entry.
-- OpenRouter Local VM calls require a fresh application-owned **Allow once**
-  decision for every attempted execution. Auto mode, remembered permissions,
-  Always allow, prompts, provider responses, MCP servers, and cloned approval
-  data are not approval authorities. Approval displays and observability must
-  remain bounded and must redact protected inputs, credentials, raw call IDs,
-  endpoint details, provider bodies, and tool arguments/results.
+- OpenRouter Local VM routine actions require one explicit application-owned
+  approval for the attended task. The grant expires with that task and does not
+  cover consequential actions, which require a fresh decision for each
+  attempt. Prompts, provider responses, MCP servers, and cloned approval data
+  are not approval authorities. Approval displays and observability must remain
+  bounded and must redact protected inputs, credentials, raw call IDs, endpoint
+  details, provider bodies, and tool arguments/results.
 - The OpenRouter Local VM turn owns one exclusive lease through provider
   streaming, approvals, MCP execution, continuation, child-process cleanup,
   and release. It must never route to the host, cloud computer, connected apps,
