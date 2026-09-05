@@ -1,11 +1,12 @@
-> Release hardening: use the authenticated source workflow in [README.md](../README.md). Automatic installer updates are disabled. Signing, clean-machine acceptance, and publication require the checks in [release-readiness.md](release-readiness.md). Earlier personal deployment notes below are historical context.
+> Beta testing: use the authenticated source workflow in [README.md](../README.md) and the [beta testing guide](beta-testing.md). Signing enrollment is deferred and automatic installer updates are disabled. Public source publication and installer distribution are separate decisions; see [release-readiness.md](release-readiness.md).
 
-# Private installation, packaging, and recovery guide
+# Installation, packaging, and recovery guide
 
-Agent Harbor is a private personal application for Laura. There is no current
-plan for a public or open-source Agent Harbor release. Source builds, private
-branches, optional local packages, installed personal checkpoints, backups,
-and recovery tests remain separate states.
+Agent Harbor is being prepared for a friends-and-family beta on Apple Silicon
+Macs and Windows x64 PCs, followed by public source availability. The repository
+remains private until publication is approved. Guided source testing can
+proceed without paid signing accounts. Source builds, branches, private test
+packages, installed checkpoints, backups, and recovery tests remain separate states.
 
 ## State definitions
 
@@ -16,7 +17,7 @@ Use these terms consistently in handoffs and personal checkpoint notes:
 | Implemented | The change exists in a local worktree. |
 | Verified | The required tests or manual checks passed for the named commit and platform. |
 | Committed | Git contains the change locally. |
-| Pushed | The exact commit exists on the private origin. |
+| Pushed | The exact commit exists on origin. |
 | Merged | The exact commit is reachable from `origin/main`. |
 | Packaged | A platform artifact was built from the exact commit. |
 | Installed/active | The selected personal build was installed or started and its core behavior was checked on Laura's target device. |
@@ -82,13 +83,14 @@ Generated `dist/`, `dist-server/`, `dist-native/`, and `release/` output must
 not be committed. Package from a clean checkout so stale output cannot enter an
 installer.
 
-### macOS personal target
+### Apple Silicon Macs
 
 `pnpm package:mac` builds the UI, server, updater bundle, speech helper, and
 bundled CUA resources. The current builder configuration has notarization
-disabled. Signing and notarization are not current public-release goals, but a
-personal package still needs installation, macOS permission, startup, update,
-and rollback evidence before it replaces Laura's known-good build.
+disabled. Developer ID signing and notarization are deferred. An ad-hoc
+development signature does not establish a trusted public publisher. A private
+test package still needs installation, macOS permission, startup, and rollback
+evidence before replacing a known-good build or being offered to testers.
 
 ### Windows
 
@@ -96,8 +98,9 @@ Run the manual **Package Windows** workflow from the exact candidate commit.
 It builds on a real Windows runner, verifies the packaged server, UI, and
 updater metadata, and retains an artifact for 14 days. The workflow is
 artifact-only and has no publishing credentials. The current Windows installer
-is unsigned. Windows packaging is not a current product priority unless Laura
-chooses a Windows device as a personal target.
+is unsigned. Windows x64 is a beta target, but a successful package build does
+not prove installation or launch on a separate tester PC. Windows microphone
+dictation and direct host-desktop control/preview are not currently supported.
 
 ### Ubuntu
 
@@ -118,16 +121,18 @@ The Windows packaging workflow is also manual and artifact-only. A green
 workflow therefore means the named commit built successfully; it does not mean
 that a personal build was installed, accepted, or recoverable.
 
-## Personal installation and promotion gate
+## Installation and release checks
 
-Do not publish or distribute Agent Harbor externally. Before replacing Laura's
-working installation or promoting a new private checkpoint:
+Source testing is the initial beta path while signing is deferred. Installer
+distribution requires an explicitly approved version, destination, signing
+status, and availability. Before replacing an existing installation or
+promoting a private test package:
 
 1. Confirm the candidate commit, branch, clean worktree, origin synchronization,
    version, and intended file list.
 2. Confirm required automated checks on the exact commit.
-3. Complete the checks for Laura's actual target device and record all other
-   platforms as unverified and out of current scope.
+3. Complete the checks for each intended tester platform and record any
+   remaining platform or feature limitations explicitly.
 4. For OpenRouter Local VM changes, complete the controlled acceptance plan in
    [the Local VM sprint document](plans/openrouter-local-vm-tool-loop.md). Do
    not substitute a credentialed production site for the controlled fixture.
