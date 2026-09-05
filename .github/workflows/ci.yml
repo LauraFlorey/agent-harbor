@@ -77,7 +77,7 @@ jobs:
         env:
           OMB_SMOKE_EXECUTABLE: ${{ runner.temp }}/agent-harbor-package/agent-harbor
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-linux-package.mjs
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         # Automatic runs prove packaging above. Retain installers only when
         # someone explicitly launches this workflow to retrieve a build.
         if: always() && github.event_name == 'workflow_dispatch' && github.event.repository.private
