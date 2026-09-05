@@ -1,3 +1,5 @@
+import { AuthenticatedEvents } from "@/lib/authenticated-events";
+import { workspaceFetch } from "@/lib/api-auth";
 // Server-backed store. The React app holds no transports of its own:
 // it dispatches typed commands over HTTP and folds the one SSE event
 // stream from the harness server into local state. The reducer stays
@@ -815,7 +817,7 @@ const initialState: AppState = {
 
 // ── API client ─────────────────────────────────────────────────────────
 export async function api(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(path, {
+  const res = await workspaceFetch(path, {
     headers: { "content-type": "application/json" },
     ...init,
   });
@@ -904,7 +906,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      workspaceFetch(`/api/bots/${botId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
@@ -1213,7 +1215,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // gap before that connection opened.
     const hydrationFallback = setTimeout(hydrate, 1_000);
 
-    const es = new EventSource("/api/events");
+    const es = new AuthenticatedEvents("/api/events");
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
     // transcript on a reconnect it already covered is pure waste.
@@ -1255,7 +1257,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected chat clears its badge immediately
           if (bot.unread && bot.id === stateRef.current.selectedId) {
             bot.unread = false;
-            fetch(`/api/bots/${bot.id}`, {
+            workspaceFetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ unread: false }),
@@ -1269,7 +1271,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected room clears its badge immediately
           if (group.unread && group.id === stateRef.current.selectedId) {
             group.unread = false;
-            fetch(`/api/groups/${group.id}`, {
+            workspaceFetch(`/api/groups/${group.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ unread: false }),

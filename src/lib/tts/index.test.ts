@@ -1,3 +1,4 @@
+import { setSessionToken } from "../api-auth";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Speaker } from "./index";
@@ -26,6 +27,7 @@ function json(body: unknown): Response {
 
 describe("Speaker lifecycle", () => {
   beforeEach(() => {
+    setSessionToken("a".repeat(64));
     FakeAudio.latest = null;
     vi.restoreAllMocks();
     vi.stubGlobal("Audio", FakeAudio);

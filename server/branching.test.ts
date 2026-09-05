@@ -1,3 +1,4 @@
+import { createOwnerFetch } from "./testing/owner-fetch.ts";
 // Conversation branching, end to end: boots the real harness server with
 // the grokAgent driver on the fake ACP CLI, runs a real turn, edits the
 // user message, and asserts the conversation forks — the old branch stays
@@ -46,8 +47,10 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
   let home: string;
   let stderr = "";
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-    const res = await fetch(`${BASE}${path}`, {
+  const ownerFetch = createOwnerFetch(BASE, () => join(home, ".openmausbot"));
+
+const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+    const res = await ownerFetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -101,7 +104,7 @@ posixOnly("conversation branching e2e (fake ACP fleet)", () => {
     const deadline = Date.now() + 20_000;
     for (;;) {
       try {
-        const res = await fetch(`${BASE}/api/health`);
+        const res = await ownerFetch(`${BASE}/api/health`);
         if (res.ok) break;
       } catch {
         /* not up yet */

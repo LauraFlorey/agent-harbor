@@ -1,0 +1,14 @@
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { rmSync, writeFileSync } from "node:fs";
+import { build } from "esbuild";
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+const output = join(root, "dist-server");
+rmSync(output, { recursive: true, force: true });
+const result = spawnSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.server.build.json"], { cwd: root, stdio: "inherit" });
+if (result.status !== 0) throw new Error("Server compilation failed");
+await build({ entryPoints: [join(root, "server/schema-validator.ts")], bundle: true, platform: "node", target: "node24", format: "esm", outfile: join(output, "schema-validator.js"), logLevel: "info" });
+writeFileSync(join(output, "package.json"), JSON.stringify({ type: "module", private: true }));

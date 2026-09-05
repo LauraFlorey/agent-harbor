@@ -1,3 +1,5 @@
+> Public-source preparation: the owner has approved preparing Agent Harbor for a public repository. Personal data and integrations remain private. Earlier private-product language below records the original design direction; release gates are in [docs/release-readiness.md](docs/release-readiness.md).
+
 # Agent Harbor architecture
 
 Status: current architecture map and target boundaries as of August 30, 2026.

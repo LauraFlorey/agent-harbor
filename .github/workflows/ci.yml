@@ -27,29 +27,37 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm check:electron
+      - run: pnpm build:server
+      - run: pnpm check:server-package
       - name: production UI build
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'windows-latest'
         run: pnpm exec vite build
+      - name: Isolated desktop authentication and navigation test
+        if: matrix.os == 'macos-latest'
+        run: pnpm test:desktop-security
 
   package-linux:
     name: package + smoke (Ubuntu 24.04 x64)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
@@ -58,17 +66,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm package:linux
       - run: node scripts/verify-linux-package.mjs
+      - name: Relocate the package outside the checkout
+        run: cp -a release/linux-unpacked "$RUNNER_TEMP/agent-harbor-package"
       - name: Configure Chromium sandbox for the unpacked app
         run: |
-          sudo chown root:root release/linux-unpacked/chrome-sandbox
-          sudo chmod 4755 release/linux-unpacked/chrome-sandbox
-          test "$(stat -c '%U:%G %a' release/linux-unpacked/chrome-sandbox)" = "root:root 4755"
+          sudo chown root:root "$RUNNER_TEMP/agent-harbor-package/chrome-sandbox"
+          sudo chmod 4755 "$RUNNER_TEMP/agent-harbor-package/chrome-sandbox"
+          test "$(stat -c '%U:%G %a' "$RUNNER_TEMP/agent-harbor-package/chrome-sandbox")" = "root:root 4755"
       - name: Launch packaged app and verify lifecycle
+        env:
+          OMB_SMOKE_EXECUTABLE: ${{ runner.temp }}/agent-harbor-package/agent-harbor
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-linux-package.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         # Automatic runs prove packaging above. Retain installers only when
         # someone explicitly launches this workflow to retrieve a build.
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.repository.private
         with:
           name: agent-harbor-ubuntu-x64
           path: |

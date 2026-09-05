@@ -1,3 +1,4 @@
+import { createOwnerFetch, sessionHeaders } from "./testing/owner-fetch.ts";
 // API smoke test: boots the real harness server (node server/index.ts)
 // against a throwaway home directory and exercises the HTTP surface the
 // app depends on. The config pins one deliberately-unknown driver so the
@@ -11,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { openSse } from "./testing/sse.ts";
+import { openSse as openRawSse } from "./testing/sse.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -28,14 +29,18 @@ let home: string;
 let staticDir: string;
 let stderr = "";
 
+const ownerFetch = createOwnerFetch(BASE, () => join(home, ".openmausbot"));
+
 const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await ownerFetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   return { status: res.status, body: await res.json() };
 };
+
+const openSse = (url: string, headers: Record<string, string> = {}) => openRawSse(url, { ...sessionHeaders(join(home, ".openmausbot"), PORT), ...headers });
 
 const statusWithHeaders = (headers: Record<string, string>): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -89,7 +94,7 @@ beforeAll(async () => {
   const deadline = Date.now() + 20_000;
   for (;;) {
     try {
-      const res = await fetch(`${BASE}/api/health`);
+      const res = await ownerFetch(`${BASE}/api/health`);
       if (res.ok) break;
     } catch {
       /* not up yet */
@@ -112,12 +117,50 @@ afterAll(async () => {
 });
 
 describe("harness HTTP API", () => {
-  it("rejects non-loopback authorities while accepting IPv4 and IPv6 loopback forms", async () => {
+  it("rejects unauthenticated reads, approval decisions, and event streams", async () => {
+    for (const path of ["/api/bots", "/api/config", "/api/events"]) {
+      const response = await globalThis.fetch(`${BASE}${path}`);
+      expect(response.status).toBe(401);
+    }
+    const response = await globalThis.fetch(`${BASE}/api/threads/anything/respond`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "anything", behavior: "allow" }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects unrelated local origins and form-compatible mutations even with a valid credential", async () => {
+    const foreign = await ownerFetch(`${BASE}/api/bots`, { method: "POST", headers: { origin: "http://127.0.0.1:45678" } });
+    expect(foreign.status).toBe(403);
+    const simple = await ownerFetch(`${BASE}/api/bots`, { method: "POST", headers: { "content-type": "text/plain" } });
+    expect(simple.status).toBe(415);
+  });
+
+  it("survives malformed request targets and rejects non-object JSON", async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request({ hostname: "127.0.0.1", port: PORT, path: "http://[" }, (res) => { res.resume(); resolve(res.statusCode!); });
+      req.on("error", reject); req.end();
+    });
+    expect(status).toBe(400);
+    expect((await globalThis.fetch(`${BASE}/api/health`)).status).toBe(200);
+    for (const body of ["null", "[]", "42"]) {
+      expect((await ownerFetch(`${BASE}/api/config`, { method: "PUT", body })).status).toBe(400);
+    }
+  });
+
+  it("validates configuration and approval types before side effects", async () => {
+    expect((await api("PUT", "/api/config", { profile: { email: { nested: "value" } } })).status).toBe(400);
+    expect((await api("PUT", "/api/config", { xai: { url: "file:///etc/passwd" } })).status).toBe(400);
+    const bot = (await api("GET", "/api/bots")).body.bots[0];
+    expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "test", behavior: "maybe" })).status).toBe(400);
+  });
+
+  it("accepts only the bound authority and exact UI origins", async () => {
     expect(await statusWithHeaders({ host: "example.com" })).toBe(403);
     expect(await statusWithHeaders({ origin: "https://example.com" })).toBe(403);
-    expect(await statusWithHeaders({ host: `127.0.0.2:${PORT}` })).toBe(200);
-    expect(await statusWithHeaders({ host: `[::1]:${PORT}` })).toBe(200);
-    expect(await statusWithHeaders({ origin: `http://[::1]:${PORT}` })).toBe(200);
+    expect(await statusWithHeaders({ host: `127.0.0.2:${PORT}` })).toBe(403);
+    expect(await statusWithHeaders({ host: `[::1]:${PORT}` })).toBe(403);
+    expect(await statusWithHeaders({ origin: `http://[::1]:${PORT}` })).toBe(403);
   });
 
   it("identifies itself on /api/health", async () => {
@@ -129,17 +172,17 @@ describe("harness HTTP API", () => {
   });
 
   it("serves packaged UI assets and preserves API 404s", async () => {
-    const root = await fetch(`${BASE}/`);
+    const root = await ownerFetch(`${BASE}/`);
     expect(root.status).toBe(200);
     expect(root.headers.get("content-type")).toBe("text/html");
     expect(await root.text()).toContain("Packaged Agent Harbor");
 
-    const asset = await fetch(`${BASE}/assets/smoke.css`);
+    const asset = await ownerFetch(`${BASE}/assets/smoke.css`);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toBe("text/css");
     expect(await asset.text()).toContain("color: white");
 
-    const spa = await fetch(`${BASE}/settings/desktop`);
+    const spa = await ownerFetch(`${BASE}/settings/desktop`);
     expect(spa.status).toBe(200);
     expect(spa.headers.get("content-type")).toBe("text/html");
     expect(await spa.text()).toContain("Packaged Agent Harbor");
@@ -154,7 +197,7 @@ describe("harness HTTP API", () => {
     writeFileSync(outside, "must not be served");
     symlinkSync(outside, join(staticDir, "assets", "outside.txt"));
 
-    const response = await fetch(`${BASE}/assets/outside.txt`);
+    const response = await ownerFetch(`${BASE}/assets/outside.txt`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/html");
     expect(await response.text()).toContain("Packaged Agent Harbor");
@@ -167,7 +210,7 @@ describe("harness HTTP API", () => {
   });
 
   it("rejects malformed and oversized JSON bodies without hanging", async () => {
-    const malformed = await fetch(`${BASE}/api/config`, {
+    const malformed = await ownerFetch(`${BASE}/api/config`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: "{",
@@ -175,7 +218,7 @@ describe("harness HTTP API", () => {
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toEqual({ error: "invalid JSON body" });
 
-    const oversized = await fetch(`${BASE}/api/config`, {
+    const oversized = await ownerFetch(`${BASE}/api/config`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile: { name: "x".repeat(1_000_001) } }),
@@ -183,7 +226,7 @@ describe("harness HTTP API", () => {
     expect(oversized.status).toBe(413);
     expect(await oversized.json()).toEqual({ error: "body too large" });
 
-    expect((await fetch(`${BASE}/api/health`)).status).toBe(200);
+    expect((await ownerFetch(`${BASE}/api/health`)).status).toBe(200);
   });
 
   it("seeds one starter bot with its greeting", async () => {
@@ -538,7 +581,7 @@ describe("harness HTTP API", () => {
     expect(listed.body.attempts).toEqual([]);
     expect(JSON.stringify(listed.body)).not.toContain(created.body.credential.secret);
 
-    const deliver = () => fetch(created.body.credential.url, {
+    const deliver = () => ownerFetch(created.body.credential.url, {
       method: "POST",
       headers: { "content-type": "application/json", "idempotency-key": "build-42" },
       body: JSON.stringify({ status: "failed", build: 42 }),
@@ -755,7 +798,7 @@ describe("message pages", () => {
 
   it("404s an image on a message that has none", async () => {
     const full = await seedRoom(1);
-    const res = await fetch(`${BASE}/api/threads/${full.threadId}/messages/${full.messages[0].id}/image`);
+    const res = await ownerFetch(`${BASE}/api/threads/${full.threadId}/messages/${full.messages[0].id}/image`);
     expect(res.status).toBe(404);
   });
 
@@ -765,7 +808,7 @@ describe("message pages", () => {
     // for threads that were never real. The 404 is the visible half; not
     // creating the thread is the half worth having.
     const before = (await api("GET", "/api/bots")).body.bots.length;
-    const res = await fetch(`${BASE}/api/threads/not-a-thread/messages/not-a-message/image`);
+    const res = await ownerFetch(`${BASE}/api/threads/not-a-thread/messages/not-a-message/image`);
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe("no such conversation");
     // and the phantom thread is not now answerable as an empty conversation

@@ -5,10 +5,9 @@ appId: com.openmausbot.app
 productName: Agent Harbor
 artifactName: Agent-Harbor-${version}-${arch}.${ext}
 
-# Retain update metadata compatibility for a possible owner-approved private
-# checkpoint. Normal personal builds use --publish never and do not distribute
-# artifacts. If updates are used later, verify the exact private delivery path
-# before replacing Laura's known-good installation.
+# Retain repository metadata for a future approved release. Package commands use
+# --publish never. Updates stay disabled until signed delivery is verified; see
+# docs/release-readiness.md before distributing any installer.
 publish:
   - provider: github
     owner: LauraFlorey
@@ -20,7 +19,7 @@ directories:
 
 # The app is three self-contained pieces, none needing node_modules at
 # runtime: the Electron main/preload (plain .mjs/.cjs), the built UI
-# (Vite → ui/), and the compiled harness server (tsc → server/), both
+# (Vite → ui/), and the compiled harness server (tsc + bundled Ajv → server/), both
 # shipped in Resources and run on Electron's own Node via
 # ELECTRON_RUN_AS_NODE (the agentcal-hq pattern).
 files:

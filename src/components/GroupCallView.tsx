@@ -8,7 +8,6 @@ import { Loader2, PhoneOff, X } from "lucide-react";
 
 import { currentCall, deferCallCleanup, endCall, useOnCall } from "@/lib/call";
 import { routeSpokenGroupMessage } from "@/lib/group-call";
-import { track } from "@/lib/analytics";
 import { normalizeState } from "@/lib/mascot";
 import { speaker } from "@/lib/tts";
 import { spokenApprovalDecision } from "@/lib/spoken-approval";
@@ -31,7 +30,7 @@ export function GroupCallButton({ group, members }: { group: Group; members: Bot
       targetId={group.id}
       targetName={group.name}
       voices={members.map((member) => member.voice)}
-      onStart={() => track("group_call_started", { memberCount: members.length })}
+
     />
   );
 }
@@ -280,7 +279,6 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
       void window.ogb?.speechStop();
     };
     // Live busy/card changes are handled below without restarting native capture.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, enqueueSpeech, group.id, group.threadId, listen, move, scheduleListen]);
 
   useEffect(() => {

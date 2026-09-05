@@ -174,6 +174,7 @@ async function main() {
       env: {
         ...process.env,
         OMB_PORT: String(serverPort),
+        OMB_UI_ORIGIN: `http://127.0.0.1:${interfacePort}`,
         OMB_WEBHOOK_PORT: String(webhookPort),
       },
     },
@@ -192,7 +193,7 @@ async function main() {
     "--port",
     String(interfacePort),
     "--strictPort",
-  ]);
+  ], { env: { ...process.env, OMB_PORT: String(serverPort) } });
   await waitForHttp(
     `http://127.0.0.1:${interfacePort}/`,
     "Interface",
@@ -207,6 +208,7 @@ async function main() {
     cleanExitStopsAll: true,
     env: {
       ...process.env,
+      OMB_PORT: String(serverPort),
       ELECTRON_START_URL: `http://127.0.0.1:${interfacePort}`,
     },
   });

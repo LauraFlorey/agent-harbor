@@ -1,314 +1,70 @@
-> ⚠️ **No affiliation with any cryptocurrency.** Agent Harbor has no token. Any coin using the Agent Harbor name is not created, endorsed, or affiliated with this project or its maintainer.
-
-<div align="center">
-
 # Agent Harbor
 
-**Your own team of AI bots, in a chat app.**
+A local workspace for running a team of AI agents, with conversations, tasks, and explicit controls over each agent's computer access.
 
-<sub>A local-first, private personal agent workspace — bring your own agents and choose how each one works.</sub>
+Agent Harbor is a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot), maintained by Laura Florey. The source is being prepared for public release. It is experimental software with powerful local capabilities; installer signing and cross-platform release acceptance are still pending. Agent Harbor has no cryptocurrency or token affiliation.
 
-Every bot in the sidebar is a real agent — Claude or Codex running locally under the hood — with its own
-personality, its own model, its own cloud computer, and its own connected apps.
-Talk to them like contacts. Watch them work. Approve what matters.
+![Agent Harbor workspace](docs/screenshots/hero.png)
 
-![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Electron](https://img.shields.io/badge/Electron-macOS%20%C2%B7%20Windows%20%C2%B7%20Ubuntu-2B2E3A?logo=electron&logoColor=9FEAF9)
-![Agents](https://img.shields.io/badge/agents-Claude%20·%20Codex-d97757)
+## Run from source
 
-<br>
-
-<sub>Private personal build: run from source while installation, backup, and recovery are hardened for Laura's use.</sub>
-
-<br>
-<br>
-
-<img src="docs/screenshots/hero.png" alt="Agent Harbor — a Telegram-style chat app where every chat is a real AI agent" width="900">
-
-</div>
-
----
-
-## Why
-
-One assistant in one box is the wrong shape for agents. Agent Harbor is Laura's private personal fork of the
-open-source **OpenMausBot** project —
-it keeps the idea (AI as a *messaging app*: a roster of bots you chat with, each with its own personality,
-memory of its thread, model, computer, and apps) and rebuilds it local-first and on the agents you
-already have:
-
-- **Bring your own agents.** Bots run on the `claude`, `codex`, and `grok` CLIs installed on your own machine
-  — your existing logins and subscriptions, no new accounts, no proxy in the middle.
-- **Local first.** One small harness server on `127.0.0.1` owns every agent process. Transcripts, keys, and
-  events live in `~/.openmausbot`, not a cloud.
-- **Agents with hands.** Each bot can get a real computer — a cloud Linux desktop it drives while you watch
-  live, or your own Mac — plus 500+ apps through Composio Connect.
-
-The legacy data path and other machine-facing identifiers intentionally remain stable during the visible
-rebrand. See the [Agent Harbor rebrand boundary](docs/agent-harbor-rebrand.md) for the compatibility contract.
-
-The canonical private-product direction is recorded in [Vision](VISION.md),
-[Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).
-
-## Features
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### 🧠 Pick a brain per bot
-
-A model picker with a provider rail — Claude and Codex models side by side, defaults marked, unavailable
-providers dimmed with the reason. Switch a bot's model mid-conversation, and give each agent its own
-owner-authored system instructions in Settings without changing its provider or permissions.
-
-<img src="docs/screenshots/model-picker.png" alt="Model picker with provider rail" width="100%">
-
-</td>
-<td width="50%" valign="top">
-
-### 🖥️ Give a bot a computer
-
-Computer access starts off. Explicitly give a bot a cloud desktop, the isolated Local VM, or this computer —
-with a live preview while it works and an "Open desktop" handoff when available.
-
-OpenRouter's experimental Local VM loop is separately off by default globally and per agent. Its initial
-allowlist is the exact `openai/gpt-5.6-terra` model, verified again against current account metadata for each
-direct-agent turn. Every other OpenRouter model remains available for ordinary text chat, and multi-agent
-rooms continue normally without this new tool loop. In the personal-use policy, one explicit approval covers
-routine Local VM actions for that task; consequential actions still pause for a fresh decision. Protected
-sign-in or CAPTCHA steps are completed manually in the visible VM, never through chat.
-
-OpenRouter agents can also use bounded provider-hosted public web research independently of computer access.
-It uses the existing OpenRouter account and does not grant access to the Local VM or this Mac.
-
-<img src="docs/screenshots/computer-panel.png" alt="Computer panel with live screen preview" width="100%">
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### 🙋 Bots ask before they act
-
-Shell commands, file edits, and questions surface as inline cards — Allow / Deny / answer in chat. A
-permission broker turns every risky action into a decision you make, for cloud and local computers alike.
-
-Local provider CLIs start in a private workspace for that bot. Starting them in your home folder and
-attaching the host desktop are separate, confirmed per-bot choices.
-
-<img src="docs/screenshots/approval-card.png" alt="Approval and question cards in chat" width="100%">
-
-</td>
-<td width="50%" valign="top">
-
-### 🔌 Connected apps
-
-A one-click marketplace over Composio Connect: Gmail, Slack, GitHub, Notion, Linear and hundreds more.
-OAuth once, and every bot can use them as tools.
-
-<img src="docs/screenshots/marketplace.png" alt="Connected apps marketplace" width="100%">
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### 🗂 Manage bots like chats
-
-Right-click any bot: pin, mark unread, edit profile, duplicate, copy conversation ID, hide, delete. It's a
-messaging app — your agents behave like contacts.
-
-<img src="docs/screenshots/context-menu.png" alt="Bot context menu" width="100%">
-
-</td>
-<td width="50%" valign="top">
-
-### 🔑 Keys once, everything lights up
-
-Paste credentials in App Settings — they persist locally and the provider fleet hot-reloads instantly.
-On macOS they are stored in Keychain; Windows and Linux use a private mode-`0600` fallback file.
-Secrets are write-only: the UI only ever sees "configured" flags.
-
-<img src="docs/screenshots/app-settings.png" alt="App-level settings with API keys" width="100%">
-
-</td>
-</tr>
-</table>
-
-### 🎧 Bots that talk back
-
-Press the speaker on any reply, or switch a bot to read its answers out as they land — so you can listen
-to what ran overnight while you make breakfast. Hit **call** and it's a conversation: it hears you, tells
-you what it's doing while it works, and asks for approvals out loud.
-
-Bring your own ElevenLabs key — paste it once in App Settings, pick a voice, and every bot can talk.
-Give a bot its own voice and a room stops sounding like one person.
-
-**Also in the box:** streaming replies with tool-run activity chips · native macOS dictation from the
-composer mic (on-device Apple speech recognition — desktop app) · animated cursor agent avatars with role-aware
-expressions · screenshots of the bot's work folded into the transcript.
-
-## How it works
-
-Two processes. The app holds no transports of its own — it sends typed commands over HTTP and folds one SSE
-event stream into state. The harness server owns every agent process and normalizes each provider's native
-protocol into one canonical runtime event stream (logged per-thread as NDJSON).
-
-```mermaid
-flowchart LR
-    subgraph app ["App — React + Tailwind (5199)"]
-        UI[Chat UI · model picker · computer panel]
-    end
-    subgraph server ["Harness server (127.0.0.1:8799)"]
-        REG[Driver registry] --> BUS[Event bus → SSE]
-        BROKER[Permission broker]
-    end
-    subgraph agents ["Agents on your computer"]
-        CL[claude CLI]
-        CX[codex CLI]
-        GR[grok CLI]
-    end
-    UI -- "HTTP commands" --> server
-    BUS -- "one SSE stream" --> UI
-    REG --> CL & CX & GR
-    CL & CX & GR -- "permission requests" --> BROKER
-    server -- "Box API" --> BOX[("Cloud computer<br/>box.ascii.dev")]
-    server -- "Composio Connect" --> APPS[("Gmail · Slack · GitHub · …")]
-```
-
-| Layer | Where | What it does |
-|---|---|---|
-| Drivers | `server/drivers/` | One per provider: local CLI/ACP agents, the OpenRouter chat API, and a cloud-computer agent. Unknown drivers degrade to "unavailable", never crash the fleet. |
-| Harness | `server/harness/` | Registry (configs → live instances) and the fan-in event bus every client folds. |
-| API | `server/index.ts` | Bots, turns, approvals, model catalog, computer lifecycle, connectors, config — HTTP + SSE. |
-| Voice | `server/tts/` | ElevenLabs, bring your own key. Runs on the harness so the key never reaches the UI; markdown is rewritten into something worth hearing before it is spoken. |
-| App | `src/` | The chat shell. Server-backed store, one reducer, zero client-side transports. |
-| Desktop | `electron/` | macOS, Windows, and Ubuntu shells with an embedded harness and explicit platform capabilities; Apple speech, local screen capture, and the current CUA bridge remain macOS-only. |
-
-Providers plug into one typed contract in `server/contracts.ts`. Each instance
-declares how it carries conversation context, where it executes, and whether
-computer control is unavailable, mounted over MCP, or native to the provider.
-The central turn runtime and UI route from those capabilities rather than from
-provider names, so a new engine can be registered without adding identity-based
-branches throughout the application.
-
-## Quick start
-
-Agent Harbor is not planned for public distribution. Build and run the private personal desktop app from source;
-create a local package only when a tested installation or recovery checkpoint is useful for Laura's devices.
-
-**From source:**
+Use Node.js 24 or later and pnpm 10.33.0. Install the provider CLIs you want to use, such as Claude or Codex, and sign in through those tools.
 
 ```sh
-git clone https://github.com/LauraFlorey/agent-harbor.git && cd agent-harbor
-pnpm install
-
-pnpm dev:all       # recommended: server + interface + desktop app in one terminal
-
-# Or start each part separately:
-pnpm dev:server    # harness server → 127.0.0.1:8799
-pnpm dev           # app → http://127.0.0.1:5199
-pnpm dev:desktop   # Electron shell; keep the two commands above running
+pnpm install --frozen-lockfile
+pnpm dev:all
 ```
 
-With `pnpm dev:all`, closing the Agent Harbor window or pressing **Control-C** in that terminal stops every
-development process cleanly. If a required port is already occupied, the launcher explains which process to
-stop or which environment variable can select another port.
+The launcher starts the server, development interface, and Electron desktop app. Closing the app or pressing Control-C stops that stack. The default ports are 8799 for the API, 5199 for the interface, and 8800 for webhook ingress. Keep them on loopback.
 
-Requirements: **macOS, Windows, or Ubuntu 24.04 x64**, **Node 24+**, **pnpm**, and at least one agent CLI — [`claude`](https://claude.com/claude-code),
-[`codex`](https://github.com/openai/codex), or [`grok`](https://x.ai/cli) — installed and logged in. They appear
-in the model picker automatically.
-
-Package the desktop application:
+The desktop app connects automatically using a private, per-server session credential. A separate browser tab requires an access code, displayed only when the owner explicitly runs:
 
 ```sh
-pnpm package:mac      # macOS: DMG + ZIP; requires Swift/Xcode tools
-pnpm package:win      # Windows: installer + ZIP
-pnpm package:linux    # Ubuntu x64: .deb + AppImage; no Swift required
+pnpm dev:access
 ```
 
-### Desktop capability status
+Paste that code into the local interface. It stays in tab memory and expires when the server restarts. Do not share it. `OMB_PORT`, `OMB_DATA_DIR`, and `AGENT_HARBOR_DEV_PORT` support separate development instances. When starting the processes individually, set `OMB_UI_ORIGIN` on the server to the exact interface origin, including its port; the default is `http://127.0.0.1:5199`.
 
-| Capability | macOS | Ubuntu 24.04 Xorg | Ubuntu 24.04 Wayland |
-|---|---|---|---|
-| Packaged app, embedded harness, local agent CLIs | Supported | Beta | Beta |
-| Composio and Box/cloud computers | Supported | Beta | Beta |
-| Local screen preview and computer control | Supported | Planned | Planned after compositor validation |
-| Native on-device dictation | Supported | Planned | Planned |
+## Capabilities and permissions
 
-Unavailable native features fail closed on Ubuntu without blocking chat or cloud features. Linux local computer
-control, Wayland capture/automation, dictation, and ARM64 are tracked in
-[upstream issue #29](https://github.com/milind-soni/OpenMausBot/issues/29) and are not claimed by the baseline package.
+- Run local provider CLIs in separate agent workspaces, with per-agent instructions and model selection.
+- Organize direct conversations, shared rooms, and tasks; approve requests in the conversation.
+- Explicitly enable a cloud computer, the isolated Local VM, or this computer for each agent. Computer access begins off. Starting in your home directory is a separate opt-in.
+- Add supported services through Composio, optional voice through ElevenLabs, and authenticated webhook triggers.
 
-These credentials are optional — local chat works without them. Paste a key once in **App Settings** (gear
-in the sidebar footer) when you want to enable its integration:
+Agents run with the capabilities of their provider CLI and its configured sandbox. A separate working directory does not isolate an OS account. Host access, auto mode, connected services, and provider-wide permission settings can grant substantial authority; choose them deliberately. Protect your backups and use isolated data for testing.
 
-| Credential | What it enables | Where to get it |
-|---|---|---|
-| OpenRouter API key (`sk-or-v1-…`) | Use the text models available to your OpenRouter account in the per-bot model picker | [OpenRouter API keys](https://openrouter.ai/settings/keys) |
-| Composio Connect key (`ck_…`) | Connect Gmail, GitHub, Slack, Notion, and other apps to your bots | [Composio Connect setup guide](https://docs.composio.dev/docs/composio-connect) |
-| Composio API key (`ak_…`) | Browse the full app catalog with official names and logos | [Composio project API key guide](https://docs.composio.dev/reference/authenticating-to-composio/project-api-key-permissions) |
-| Box API key | Give bots an isolated remote Linux computer with a desktop and terminal | [Box API key guide](https://docs.ascii.dev/box/api-keys) |
-| ElevenLabs key | Read replies aloud, and call your bots | [ElevenLabs API keys](https://elevenlabs.io/app/settings/api-keys) |
+OpenRouter's experimental Local VM loop is default-off globally and per agent and currently restricted to the exact configured model allowlist. An attended observation grant covers only known, no-argument screen/window observation tools. Shell commands, clicks, typing, and unknown operations require a fresh decision. The VM can still reach services you sign into inside it. See [OpenRouter](docs/openrouter.md).
 
-OpenRouter, Composio, and Box are third-party services with their own accounts and terms. OpenRouter model
-calls and Box cloud-computer usage may incur charges. See [`docs/openrouter.md`](docs/openrouter.md) for
-the OpenRouter setup and current capability boundary.
+## Privacy and local data
 
-For operational status and private installation boundaries, use the
-[current handoff](docs/plans/current-handoff.md) and the
-[private installation and recovery guide](docs/deployment.md). They distinguish a local implementation or package from
-a pushed, merged, installed, and verified personal checkpoint.
+No analytics SDK is included, and the app does not send usage events or onboarding email addresses to an analytics service. The optional profile is stored locally. Your prompts and tool results still go to the provider or connected service you choose. Remote images in messages and service logos can contact their image hosts.
+
+Data lives in `~/.openmausbot` by default. Credentials use macOS Keychain, or a private fallback file on Windows/Linux. The API returns configured flags instead of provider credentials. Session access codes use a private file in the data directory; they are never included in URLs, cookies, automatic startup logs, or agent subprocess environments. The health endpoint is public on loopback; workspace data and event streams require authentication.
+
+The legacy data path and application identifiers remain stable for compatibility. See the [rebrand boundary](docs/agent-harbor-rebrand.md). Source-code visibility does not publish your local data.
+
+## Development checks
 
 ```sh
-pnpm typecheck     # app + server
-pnpm test          # unit, driver, API, and desktop capability tests
-pnpm build         # typecheck + production build
-pnpm check:electron # syntax-check Electron main/preload files
-pnpm package:win   # Windows installer + zip → release/
-pnpm package:linux # Ubuntu x64 .deb + AppImage → release/
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm check:electron
+pnpm build
+pnpm build:server
+pnpm check:server-package
+pnpm audit --audit-level=moderate
 ```
 
-### Routines and webhook triggers
+The server build cleans its output and bundles the external schema validator. Do not commit generated output. CI checks tests and packaging, runs dependency and history-secret scans, and reviews new dependencies on public pull requests. Historical scanner exceptions are restricted to a documented public ingestion key that has been removed from the app.
 
-Routines can run once or on selected weekdays, using either an agent's configured model/computer or the
-Cloud VM runner. Webhook triggers are independent from schedules but reuse the same queued task executor
-and calendar receipts.
+## Distribution and project documents
 
-Agent Harbor starts a webhook-only receiver on `127.0.0.1:8800` by default (or one port above `OMB_PORT`).
-Set `OMB_WEBHOOK_PORT` to choose another port. A webhook secret is shown once when the trigger is created
-or rotated. Bearer authentication is recommended so the secret stays out of request URLs and most access
-logs; a single capability URL remains available for senders that cannot configure headers. The receiver
-exposes only `/health` and secret `/hooks/...` endpoints; it never exposes the app's broader API.
-Agent Harbor must remain running to accept a delivery. For public internet delivery, proxy only this
-dedicated receiver through a hosted relay or a tool such as Tailscale Funnel.
+Automatic installer updates are disabled until signed release provenance is established. Local packaging commands use `--publish never`. Do not distribute installers as a stable release until the [release checklist](docs/release-readiness.md) is complete and the exact build passes clean-machine checks on its target OS.
 
-## Status
-
-Early but real — core message → agent → streamed reply → tools → approvals → computer-use paths are
-implemented, and source builds work on macOS, Windows, and Ubuntu 24.04 x64. Laura's current personal workflow
-is the product priority; other platform results are technical evidence, not a public support promise. The experimental OpenRouter
-Local VM loop has automated coverage and one earlier controlled end-to-end tool run, but its complete
-controlled acceptance sequence remains unfinished. The latest personal-use approval, web-research, timing,
-and system-instruction changes are currently a pushed private checkpoint rather than a merged or installed build; see
-the [current handoff](docs/plans/current-handoff.md) for exact evidence and outstanding risks.
-
-No public or open-source Agent Harbor release is currently planned. Rough edges to expect: hosted/mobile connectivity is
-still being built, and webhook triggers currently use the local receiver rather than an always-on hosted relay.
-Voice needs an ElevenLabs key, and calls are macOS-only for now (they ride the same on-device dictation as
-the composer mic) — see [`docs/voice-mode.md`](docs/voice-mode.md) for the design and the known gaps.
-
-The driver SPI in [`server/contracts.ts`](server/contracts.ts) remains deliberately small so Laura can add or
-replace providers without reshaping the personal system.
+See [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [architecture](ARCHITECTURE.md), and [roadmap](ROADMAP.md). Historical screenshots under `docs/screenshots` show earlier upstream interfaces and demonstration conversations; the hero above is the current clean workspace reference.
 
 ## License
 
-[MIT](LICENSE) © 2026 Milind Soni, Laura Florey, and contributors.
-
-Agent Harbor is a private personal fork based on the MIT-licensed
-[OpenMausBot](https://github.com/milind-soni/OpenMausBot) project and preserves its attribution. No public
-Agent Harbor distribution is currently planned. It is
-not affiliated with, endorsed by, or associated with xAI; "Grok" is a trademark
-of its respective owner.
+[MIT](LICENSE). The upstream copyright and contributor attribution are preserved.

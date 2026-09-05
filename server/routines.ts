@@ -112,7 +112,7 @@ function cleanDays(days: unknown): number[] {
   return out.length ? out : ALL_DAYS;
 }
 
-function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
+function cleanSchedule(schedule: RoutineSchedule | undefined): RoutineSchedule {
   if (schedule?.type === "once") {
     const at = Number(schedule.at);
     if (!Number.isFinite(at)) throw new Error("Choose a valid date and time");
@@ -140,7 +140,7 @@ export function nextOccurrence(schedule: RoutineSchedule, after: number): number
   return null;
 }
 
-function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | "updatedAt" | "nextRunAt"> {
+function sanitizeInput(input: Partial<RoutineInput>): Omit<Routine, "id" | "createdAt" | "updatedAt" | "nextRunAt"> {
   const name = String(input.name ?? "").trim().slice(0, 80);
   const prompt = String(input.prompt ?? "").trim().slice(0, 20_000);
   const botId = String(input.botId ?? "").trim();
@@ -222,7 +222,7 @@ export class RoutineManager {
     );
   }
 
-  create(input: RoutineInput): Routine {
+  create(input: Partial<RoutineInput>): Routine {
     const clean = sanitizeInput(input);
     if (this.options.botState(clean.botId) === "missing") throw new Error("That bot no longer exists");
     const at = this.now();

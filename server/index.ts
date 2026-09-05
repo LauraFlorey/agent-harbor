@@ -1,10 +1,13 @@
+import { handleConfigRoute } from "./routes/config.ts";
+import { approvalResponse } from "./routes/input.ts";
+import { createApiSecurity, PRODUCTION_CSP } from "./api-security.ts";
+import { json, readBody, requestUrl } from "./http.ts";
 // Agent Harbor server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { isIP } from "node:net";
+import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +24,7 @@ import {
   setupCommands,
   type LifecycleAction,
 } from "./container-computer.ts";
-import { ensureDirs, instanceConfigs, loadConfig, saveConfig, CONSEQUENTIAL_LOG_FILE, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
+import { DATA_DIR, ensureDirs, instanceConfigs, loadConfig, CONSEQUENTIAL_LOG_FILE, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
@@ -504,7 +507,7 @@ function createLocalVmApprovalChannel(
             ? `${bot.name} wants to use the Local VM for this task`
             : `${bot.name} wants to use the Local VM`,
           subtitle: grantsRoutineSession
-            ? `Allow routine browsing actions in the isolated desktop for this task.\nFirst action: ${localVmAction(event.tool)}\n${event.summary}`
+            ? `Allow screen and window observations in the isolated desktop for this task.\nFirst action: ${localVmAction(event.tool)}\n${event.summary}`
             : `${localVmAction(event.tool)}\n${event.summary}`,
           options: ["Allow", "Deny"],
           requestId: event.requestId,
@@ -517,7 +520,7 @@ function createLocalVmApprovalChannel(
           oneAttempt: !grantsRoutineSession,
           held: event.consequential
             ? "This action may change a page or affect something outside the chat."
-            : "Routine actions may continue for this task. Consequential actions will still ask separately.",
+            : "Screen and window observations may continue for this task. Commands, clicks, typing, and unknown actions ask separately.",
         },
       });
       pendingLocalVmApprovals.set(event.requestId, {
@@ -1727,102 +1730,15 @@ async function reloadProviders() {
 }
 
 // ── HTTP plumbing ─────────────────────────────────────────────────────
-function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(data);
-}
-
-function readBody(req: IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    let bytes = 0;
-    let done = false;
-    const fail = (status: number, msg: string) => {
-      if (done) return;
-      done = true;
-      const err = Object.assign(new Error(msg), { status });
-      reject(err);
-    };
-    req.on("data", (c) => {
-      if (done) return;
-      bytes += typeof c === "string" ? Buffer.byteLength(c) : c.length;
-      if (bytes > 1_000_000) {
-        // Keep draining the socket, but stop retaining attacker-controlled
-        // bytes. Destroying the request here prevents the caller from
-        // receiving the useful 413 response.
-        return fail(413, "body too large");
-      }
-      data += c;
-    });
-    req.on("end", () => {
-      if (done) return;
-      let body: any;
-      try {
-        body = data ? JSON.parse(data) : {};
-      } catch {
-        return fail(400, "invalid JSON body");
-      }
-      done = true;
-      resolve(body);
-    });
-    req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
-  });
-}
-
-// Loopback-only enforcement: the harness runs on 127.0.0.1 but accepts
-// requests from any loopback connection and any web page that DNS-rebinds
-// onto it. Reject non-loopback Hosts outright (defeats rebinding) and
-// origins outside loopback (blocks remote-web CSRF).
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  const value = host.trim().toLowerCase();
-  if (!value) return false;
-
-  let hostname = value;
-  if (value.startsWith("[")) {
-    const close = value.indexOf("]");
-    if (close < 0 || (value.length > close + 1 && !/^:\d+$/.test(value.slice(close + 1)))) return false;
-    hostname = value.slice(1, close);
-  } else {
-    const firstColon = value.indexOf(":");
-    const lastColon = value.lastIndexOf(":");
-    if (firstColon >= 0 && firstColon === lastColon) {
-      if (!/^\d+$/.test(value.slice(firstColon + 1))) return false;
-      hostname = value.slice(0, firstColon);
-    }
-  }
-
-  if (hostname === "localhost" || hostname === "localhost.") return true;
-  if (isIP(hostname) === 4) return hostname.startsWith("127.");
-  return hostname === "::1" || hostname === "0:0:0:0:0:0:0:1";
-}
-
-function isAllowedOrigin(origin: string | undefined | null): boolean {
-  if (!origin) return true; // non-browser clients (CLIs, curl, tests) send none
-  try {
-    const o = new URL(origin);
-    return isLoopbackHost(o.hostname) && (o.protocol === "http:" || o.protocol === "https:");
-  } catch {
-    return false;
-  }
-}
+const apiSecurity = createApiSecurity(PORT, DATA_DIR, process.env.OMB_UI_ORIGIN ?? (STATIC_ROOT ? undefined : "http://127.0.0.1:5199"));
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-  const path = url.pathname;
-  const method = req.method ?? "GET";
-  /** scratch for route matches, shared by every `path.match` below */
-  let m: RegExpMatchArray | null = null;
   try {
-    // loopback-host + loopback-origin gate before any route (DNS rebinding / CSRF)
-    if (!isLoopbackHost(req.headers.host)) {
-      return json(res, 403, { error: "forbidden: loopback host required" });
-    }
-    const origin = req.headers.origin;
-    if (origin && !isAllowedOrigin(origin)) {
-      return json(res, 403, { error: "forbidden: cross-origin request" });
-    }
+    const url = requestUrl(req, PORT);
+    const path = url.pathname;
+    const method = req.method ?? "GET";
+    let m: RegExpMatchArray | null = null;
+    apiSecurity.check(req, path);
     // ── internal peer-agent comms (localhost + shared token only) ──────
     // The agents-proxy (spawned inside a bot's agent process) calls these to
     // discover peers and hand a message to one. Not part of the public API.
@@ -2542,7 +2458,7 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      const body = await readBody(req);
+      const body = approvalResponse(await readBody(req));
       const localVmDecision = resolveLocalVmApproval(bot.threadId, body.requestId, body.behavior);
       if (localVmDecision === "resolved") return json(res, 200, { ok: true });
       if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
@@ -2566,7 +2482,7 @@ const server = createServer(async (req, res) => {
     m = path.match(/^\/api\/threads\/([\w-]+)\/respond$/);
     if (m && method === "POST") {
       const threadId = m[1];
-      const body = await readBody(req);
+      const body = approvalResponse(await readBody(req));
       const localVmDecision = resolveLocalVmApproval(threadId, body.requestId, body.behavior);
       if (localVmDecision === "resolved") return json(res, 200, { ok: true });
       if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
@@ -2716,87 +2632,11 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { instances: await registry.describe() });
     }
 
-    // ── app config (API keys — never echoed back, booleans only) ──
-    if (method === "GET" && path === "/api/config") {
-      return json(res, 200, configStatus());
-    }
-    if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
-      const body = await readBody(req);
-      const rawOpenRouter = body.openrouter;
-      if (
-        rawOpenRouter !== undefined
-        && (rawOpenRouter === null || typeof rawOpenRouter !== "object" || Array.isArray(rawOpenRouter))
-      ) {
-        return json(res, 400, { error: "openrouter must be an object" });
-      }
-      if (
-        rawOpenRouter
-        && Object.prototype.hasOwnProperty.call(rawOpenRouter, "apiKey")
-        && typeof (rawOpenRouter as { apiKey?: unknown }).apiKey !== "string"
-      ) {
-        return json(res, 400, { error: "openrouter.apiKey must be a string" });
-      }
-      if (
-        rawOpenRouter
-        && Object.prototype.hasOwnProperty.call(rawOpenRouter, "localVmEnabled")
-        && typeof (rawOpenRouter as { localVmEnabled?: unknown }).localVmEnabled !== "boolean"
-      ) {
-        return json(res, 400, { error: "openrouter.localVmEnabled must be true or false" });
-      }
-      const rawOpenCode = body.opencodeGo;
-      if (
-        rawOpenCode !== undefined
-        && (rawOpenCode === null || typeof rawOpenCode !== "object" || Array.isArray(rawOpenCode))
-      ) {
-        return json(res, 400, { error: "opencodeGo must be an object" });
-      }
-      if (
-        rawOpenCode
-        && Object.prototype.hasOwnProperty.call(rawOpenCode, "apiKey")
-        && typeof (rawOpenCode as { apiKey?: unknown }).apiKey !== "string"
-      ) {
-        return json(res, 400, { error: "opencodeGo.apiKey must be a string" });
-      }
-      const patch: Record<string, object> = {};
-      for (const key of ["xai", "openrouter", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
-        if (body[key] && typeof body[key] === "object") patch[key] = body[key];
-      }
-      if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
-      // check a box token against the provider before storing it: a
-      // rejected token used to save happily and only surface as a 401 in
-      // another panel later, with nothing the user could act on
-      const newBoxToken = (patch.box as { token?: unknown } | undefined)?.token;
-      if (typeof newBoxToken === "string" && newBoxToken.trim()) {
-        const check = await box.verifyToken(newBoxToken.trim());
-        if (!check.ok) return json(res, 400, { error: check.message });
-      }
-      // same rule for a voice key — and check it against the provider the
-      // patch SELECTS, not the one already saved, or pasting a Cartesia key
-      // while switching from ElevenLabs validates against the wrong service
-      const newTts = patch.tts as { key?: unknown } | undefined;
-      if (typeof newTts?.key === "string" && newTts.key.trim()) {
-        const check = await tts.verifyKey(newTts.key.trim());
-        if (!check.ok) return json(res, 400, { error: check.message });
-      }
-      const disablingOpenRouterLocalVm =
-        cfg.openrouter?.localVmEnabled === true &&
-        (patch.openrouter as { localVmEnabled?: unknown } | undefined)?.localVmEnabled === false;
-      const openRouterToggleOnly = Object.keys(patch).length === 1 &&
-        patch.openrouter !== undefined &&
-        Object.keys(patch.openrouter).every((key) => key === "localVmEnabled");
-      saveConfig(patch);
-      Object.assign(cfg, loadConfig());
-      if (disablingOpenRouterLocalVm) await cancelOpenRouterLocalVmTurns();
-      // provider keys change the fleet; a profile or voice edit must not
-      // kill in-flight turns with a pointless reload — no driver reads
-      // either, and picking a voice mid-turn should be free
-      if (!openRouterToggleOnly && Object.keys(patch).some((k) => k !== "profile" && k !== "tts")) {
-        await reloadProviders();
-      }
-      const status = configStatus();
-      broadcast({ kind: "config", ...status });
-      return json(res, 200, status);
-    }
+    if (await handleConfigRoute(req, res, path, {
+      config: cfg, status: configStatus, reloadProviders,
+      cancelLocalVmTurns: cancelOpenRouterLocalVmTurns,
+      broadcast: (event) => broadcast(event as Parameters<typeof broadcast>[0]),
+    })) return;
 
     // ── voice ─────────────────────────────────────────────────────────
     // Splitting text into utterances lives HERE, not in the renderer, for
@@ -2886,13 +2726,13 @@ const server = createServer(async (req, res) => {
         const file = realpathSync(join(STATIC_ROOT, path === "/" ? "/index.html" : path));
         if (!file.startsWith(STATIC_ROOT + sep)) throw new Error("outside static root");
         const data = readFileSync(file);
-        res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+        res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "content-security-policy": PRODUCTION_CSP, "x-content-type-options": "nosniff" });
         return res.end(data);
       } catch {
         // SPA fallback
         try {
           const data = readFileSync(join(STATIC_ROOT, "index.html"));
-          res.writeHead(200, { "content-type": "text/html" });
+          res.writeHead(200, { "content-type": "text/html", "content-security-policy": PRODUCTION_CSP, "x-content-type-options": "nosniff" });
           return res.end(data);
         } catch {
           /* fall through to 404 */
@@ -2908,6 +2748,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
+  apiSecurity.publish();
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
 });
 
@@ -2915,6 +2756,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  apiSecurity.dispose();
   server.close();
   server.closeAllConnections?.();
   try {

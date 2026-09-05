@@ -161,6 +161,7 @@ function modelLabel(record: Record<string, unknown>, id: string, apiKey: string)
   if (typeof name === "string" && name.trim()) {
     const bounded = name.slice(0, 512);
     return (apiKey ? bounded.replaceAll(apiKey, "[redacted]") : bounded)
+      // eslint-disable-next-line no-control-regex -- Intentionally remove untrusted control characters.
       .replace(/[\u0000-\u001f\u007f]/g, " ")
       .normalize("NFC")
       .trim()

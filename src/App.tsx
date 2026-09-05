@@ -1,8 +1,9 @@
+import { WorkspaceAccess } from "@/components/WorkspaceAccess";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
-import { emailGateDone, initAnalytics } from "@/lib/analytics";
+import { emailGateDone } from "@/lib/onboarding";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
@@ -135,11 +136,8 @@ function Shell() {
   );
 }
 
-export default function App() {
+function Workspace() {
   const [gated, setGated] = useState(() => !emailGateDone());
-  useEffect(() => {
-    initAnalytics();
-  }, []);
   return (
     <DesktopCapabilitiesProvider>
       <StoreProvider>
@@ -149,3 +147,5 @@ export default function App() {
     </DesktopCapabilitiesProvider>
   );
 }
+
+export default function App() { return <WorkspaceAccess><Workspace /></WorkspaceAccess>; }

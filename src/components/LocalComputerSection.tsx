@@ -1,3 +1,4 @@
+import { workspaceFetch } from "@/lib/api-auth";
 // One-place setup and lifecycle for the shared, isolated Local VM.
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -108,7 +109,7 @@ export function LocalComputerSection() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/local-computer", { signal });
+    const response = await workspaceFetch("/api/local-computer", { signal });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error ?? `Status request failed (${response.status})`);
     setStatus(body as Status);
@@ -144,7 +145,7 @@ export function LocalComputerSection() {
   }, [refresh, refreshKey]);
 
   const post = async (action: Exclude<Action, "recreate">) => {
-    const response = await fetch(`/api/local-computer/${action}`, {
+    const response = await workspaceFetch(`/api/local-computer/${action}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
@@ -207,7 +208,7 @@ export function LocalComputerSection() {
       )
     ) return;
     try {
-      const response = await fetch("/api/config", {
+      const response = await workspaceFetch("/api/config", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ openrouter: { localVmEnabled: next } }),

@@ -28,7 +28,6 @@ import { usePushToTalk } from "@/lib/push-to-talk";
 import { MausAvatar } from "./Avatar";
 import { pendingApprovals } from "./PendingApproval";
 import { cn } from "@/lib/cn";
-import { track } from "@/lib/analytics";
 import { spokenApprovalDecision } from "@/lib/spoken-approval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
@@ -41,7 +40,7 @@ export function CallButton({ bot }: { bot: Bot }) {
       targetId={bot.id}
       targetName={bot.name}
       voices={[bot.voice]}
-      onStart={() => track("call_started", { driver: bot.modelSelection?.instanceId })}
+
     />
   );
 }
@@ -50,12 +49,10 @@ export function CallTargetButton({
   targetId,
   targetName,
   voices,
-  onStart,
 }: {
   targetId: string;
   targetName: string;
   voices: Array<string | undefined>;
-  onStart: () => void;
 }) {
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
@@ -124,7 +121,6 @@ export function CallTargetButton({
             setHelpOpen((open) => !open);
             return;
           }
-          onStart();
           startCall(targetId);
         }}
         aria-expanded={unavailable ? helpOpen : undefined}
@@ -358,7 +354,6 @@ function Call({ bot }: { bot: Bot }) {
     };
     // busy/approval are intentionally initial snapshots. Their live changes
     // are handled below without tearing down native event listeners.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bot.id, bot.threadId, dispatch, listen, move, sayThenListen]);
 
   // ── narrate the work, speak the answer, read the approvals ───────────

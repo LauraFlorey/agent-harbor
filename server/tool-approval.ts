@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
-import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
+import { Ajv2020, type ValidateFunction } from "./schema-validator.ts";
 
 import { looksDestructive, looksSensitive } from "./auto-approve.ts";
 import type {
@@ -454,6 +454,7 @@ function boundedSummary(tool: string, argumentsValue: Record<string, unknown>): 
       (sensitive || PROTECTED_INPUT.test(value) || PROTECTED_VALUE.test(value))
     ) return "[redacted]";
     if (typeof value === "string") {
+      // eslint-disable-next-line no-control-regex -- Intentionally remove untrusted control characters.
       return value.replace(/[\u0000-\u001f\u007f]/g, " ").normalize("NFC").slice(0, 120);
     }
     if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
@@ -531,8 +532,10 @@ function exactChallenge(actual: unknown, expected: ToolApprovalChallenge, key: B
   }
 }
 
+const OBSERVATION_TOOLS = new Set(["get_state", "get_screenshot", "screenshot", "get_cursor_position", "list_windows", "get_accessibility_tree"]);
+
 function consequential(tool: string, canonicalArguments: string): boolean {
-  return looksDestructive(tool) || looksSensitive(tool) || HIGH_IMPACT.test(tool) ||
+  return !OBSERVATION_TOOLS.has(tool) || canonicalArguments !== "{}" || looksDestructive(tool) || looksSensitive(tool) || HIGH_IMPACT.test(tool) ||
     looksDestructive(canonicalArguments) || looksSensitive(canonicalArguments) || HIGH_IMPACT.test(canonicalArguments);
 }
 

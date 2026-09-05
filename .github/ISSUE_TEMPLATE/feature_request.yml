@@ -1,0 +1,10 @@
+name: Feature request
+description: Describe a workflow or improvement.
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: Problem and proposed behavior
+      description: Explain your use case and the result you need. Keep private information out of the report.
+    validations:
+      required: true

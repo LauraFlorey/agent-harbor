@@ -1,0 +1,17 @@
+name: Bug report
+description: Report a reproducible problem. Use private reporting for security issues.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include expected behavior and reproduction steps. Remove credentials, access codes, personal data, and private conversations.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: App commit/version, OS, Node version, and provider CLI version if relevant.
+    validations:
+      required: true

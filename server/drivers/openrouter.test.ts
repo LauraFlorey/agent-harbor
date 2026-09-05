@@ -358,8 +358,7 @@ describe("OpenRouter streamed tool-call transport", () => {
     expect(nested.toolCalls[0]?.arguments).toEqual(nestedArguments);
   });
 
-  it.each(["[]", "null", "true", "42", '"text"'])
-    ("rejects non-object argument JSON %s", async (argumentsJson) => {
+  it.each(["[]", "null", "true", "42", '"text"'])("rejects non-object argument JSON %s", async (argumentsJson) => {
       await expect(streamOpenRouterCompletion(
         streamRequest(),
         async () => chunkedSseResponse(singleToolCallSse(argumentsJson)),

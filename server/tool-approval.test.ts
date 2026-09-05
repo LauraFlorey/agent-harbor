@@ -1,3 +1,4 @@
+import { LocalVmRoutineAuthorization } from "./local-vm-routine-authorization.ts";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -228,7 +229,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
     await assertReleased(dir);
   });
 
-  it("does not flag a reversible call whose arguments only mention messages or accounts", async () => {
+  it("requires approval for unknown tools even with harmless argument text", async () => {
     const { dir, endpoint } = await fakeEndpoint();
     const app = applicationChannel();
     await withLeasedMcpClient(endpoint, {}, async (client) => {
@@ -239,7 +240,7 @@ describe("turn-scoped Local VM tool approval gate", () => {
         arguments: { value: "summarize the newest message in the account inbox" },
       });
       const [request] = await opened(app.events);
-      expect(request?.consequential).toBe(false);
+      expect(request?.consequential).toBe(true);
       expect(approve(app.decisions, request!.challenge)).toBe(true);
       await execution;
     });
@@ -848,4 +849,28 @@ describe("turn-scoped Local VM tool approval gate", () => {
     });
     await assertReleased(dir);
   });
+});
+
+
+it("never extends an observation grant to shell execution or coordinate clicks", async () => {
+  const policy = new LocalVmRoutineAuthorization(false);
+  policy.recordHumanDecision(false, "allow");
+  const executor = vi.fn(async (call) => ({ callId: call.id, content: [], isError: false }));
+  const opened: Array<{ tool: string; consequential: boolean }> = [];
+  const app = createApplicationToolApprovalChannel((event) => {
+    if (event.type !== "request.opened") return;
+    opened.push(event);
+    app.decisions.resolve({ challenge: event.challenge, behavior: policy.shouldAuthorize(event.consequential, false) ? "allow" : "deny" });
+  });
+  const tools = ["get_state", "shell", "click"].map((name) => ({ name, description: name, inputSchema: { type: "object", additionalProperties: true } }));
+  const requests = createApprovedToolRequests(tools, executor, { turnId: "regression-observation-only", approval: app.channel });
+  try {
+    await requests.execute({ id: "observation", name: "get_state", arguments: {} });
+    await expect(requests.execute({ id: "shell", name: "shell", arguments: { command: "python3 -c \"import os; os.remove('/home/cua/workspace/report.txt')\"" } })).rejects.toMatchObject({ code: "approval_denied" });
+    await expect(requests.execute({ id: "click", name: "click", arguments: { x: 300, y: 200 } })).rejects.toMatchObject({ code: "approval_denied" });
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(opened.map(({ tool, consequential }) => ({ tool, consequential }))).toEqual([
+      { tool: "get_state", consequential: false }, { tool: "shell", consequential: true }, { tool: "click", consequential: true },
+    ]);
+  } finally { requests.close(); }
 });

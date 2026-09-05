@@ -1,3 +1,5 @@
+> Approval policy update: task-wide routine approval covers only known observation tools with empty arguments. Clicks, typing, shell commands, and other operations always require a fresh decision. This overrides earlier descriptions of routine browsing approval below.
+
 # OpenRouter
 
 OpenRouter is an optional API-backed Agent Harbor engine. It lets each bot use a

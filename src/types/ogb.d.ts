@@ -30,6 +30,7 @@ declare global {
 
   interface Window {
     ogb?: {
+      getSessionToken: () => Promise<string>;
       platform: NodeJS.Platform;
       getCapabilities(): Promise<DesktopCapabilities>;
       screenFrame(): Promise<string | null>;

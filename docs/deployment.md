@@ -1,3 +1,5 @@
+> Release hardening: use the authenticated source workflow in [README.md](../README.md). Automatic installer updates are disabled. Signing, clean-machine acceptance, and publication require the checks in [release-readiness.md](release-readiness.md). Earlier personal deployment notes below are historical context.
+
 # Private installation, packaging, and recovery guide
 
 Agent Harbor is a private personal application for Laura. There is no current
