@@ -75,7 +75,11 @@ async function assertReleased(dir: string): Promise<FakeState> {
   }
   expect(alive(state.parentPid)).toBe(false);
   expect(alive(state.helperPid)).toBe(false);
-  expect(existsSync(join(dir, "turn-resource"))).toBe(false);
+  // Windows force-terminates the tree without running the fixture's SIGTERM/
+  // exit handlers. Both PID checks above remain mandatory on every platform;
+  // the disposable disk marker is removed by the test owner's afterEach.
+  // https://nodejs.org/api/process.html#signal-events
+  if (process.platform !== "win32") expect(existsSync(join(dir, "turn-resource"))).toBe(false);
   return readState(dir);
 }
 

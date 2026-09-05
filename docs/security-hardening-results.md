@@ -28,7 +28,7 @@ The work is on `codex/public-release-hardening` in a separate checkout. Commit `
 
 ## Still required before publication or distribution
 
-1. Sync the reviewed branch to the private repository and run its CI on the exact candidate commit, including Windows and relocated Linux packaging checks. Those platforms were not executed locally on this Mac.
+1. Verify all GitHub checks on the exact candidate commit in [pull request #17](https://github.com/LauraFlorey/agent-harbor/pull/17/checks). The branch has been synced to the private repository. The initial Mac and Linux runs, including isolated desktop and relocated Linux package checks, passed. Windows identified an incorrect test expectation that a force-terminated fixture would run its exit handler; the tests now preserve mandatory process-termination assertions on every platform while checking that handler only on POSIX. The correction passed all 72 affected tests locally and requires the fresh Windows CI result. Windows and Linux were not executed locally on this Mac.
 2. Review and merge the intended branch into the default branch. Review other public-facing branches, historical documents/images, attachments, and any newly generated artifacts before changing visibility.
 3. Establish a working private vulnerability-reporting contact and verify available GitHub branch rules, required checks, dependency security, and secret protection. These account settings have not been enabled by this source change.
 4. Obtain owner approval for the actual visibility change and verify the resulting public repository.
