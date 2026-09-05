@@ -5,6 +5,7 @@ import { computerDestinationLabel, supportsComputerDestination } from "./compute
 describe("computer destination compatibility", () => {
   const textOnly = { computerUse: "none", executionMode: "local-process" } as const;
   const localMcp = { computerUse: "mcp", executionMode: "local-process" } as const;
+  const openRouterServerLoop = { computerUse: "server", executionMode: "local-process" } as const;
   const remoteNative = { computerUse: "native", executionMode: "remote-computer" } as const;
 
   it("always permits turning computer access off", () => {
@@ -18,10 +19,23 @@ describe("computer destination compatibility", () => {
     expect(supportsComputerDestination(textOnly, "cloud")).toBe(false);
   });
 
+  it("lets an eligible server-owned turn reach only the Local VM without changing provider capability", () => {
+    expect(supportsComputerDestination(textOnly, "vm", { localVmServerEligible: true })).toBe(true);
+    expect(supportsComputerDestination(textOnly, "local", { localVmServerEligible: true })).toBe(false);
+    expect(supportsComputerDestination(textOnly, "cloud", { localVmServerEligible: true })).toBe(false);
+    expect(textOnly.computerUse).toBe("none");
+  });
+
   it("allows a local MCP engine to use the Local VM, host, or cloud bridge", () => {
     expect(supportsComputerDestination(localMcp, "vm")).toBe(true);
     expect(supportsComputerDestination(localMcp, "local")).toBe(true);
     expect(supportsComputerDestination(localMcp, "cloud")).toBe(true);
+  });
+
+  it("allows a server-driven API engine to use only the isolated Local VM", () => {
+    expect(supportsComputerDestination(openRouterServerLoop, "vm")).toBe(true);
+    expect(supportsComputerDestination(openRouterServerLoop, "local")).toBe(false);
+    expect(supportsComputerDestination(openRouterServerLoop, "cloud")).toBe(false);
   });
 
   it("limits a native remote-computer engine to the cloud destination", () => {

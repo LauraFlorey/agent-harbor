@@ -1,15 +1,13 @@
-# Windows installer, built on a real Windows runner and published as a
-# workflow artifact.
+# Optional private Windows installer, built on a real Windows runner and kept
+# as a workflow artifact.
 #
-# Why this exists: releases are cut by hand from a Mac, which cannot build
+# Why this exists: a Mac cannot build
 # an NSIS installer (electron-builder needs wine, and a cross-built exe
 # that never ran on Windows is exactly the artifact that looks fine and
-# breaks in the field). So every release so far shipped Windows behind the
-# mac build — different trees under one version number. Run this from the
-# same commit as the mac build and attach the artifact to the release.
+# breaks in use). Run this only when Laura needs a Windows checkpoint, from the
+# same commit as the corresponding personal build.
 #
-# Deliberately artifact-only: pushing straight to the separate releases
-# repo would need a cross-repo token this workflow has no business holding.
+# Deliberately artifact-only: this workflow has no publishing credentials.
 name: Package Windows
 
 on:
@@ -20,17 +18,21 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   package:
     name: NSIS installer
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
@@ -49,10 +51,8 @@ jobs:
           echo "commit:  $(git rev-parse HEAD)"
           ls -lh release/*.exe release/*.yml 2>/dev/null || true
       # Three things silently produce an installer that builds fine and is
-      # broken in the field, and none of them can be checked from the Mac the
-      # release is cut on — the artifact carries only the .exe. So assert them
-      # here, where the unpacked tree exists, and fail the build instead of
-      # shipping it.
+      # broken in use, and none of them can be checked from the Mac creating
+      # the personal checkpoint. Assert them where the unpacked tree exists.
       - name: verify the packaged tree
         shell: bash
         run: |
@@ -76,7 +76,10 @@ jobs:
           echo "--- app-update.yml ---"; cat "$res/app-update.yml" 2>/dev/null || true
           exit $fail
 
-      - uses: actions/upload-artifact@v4
+      # Unsigned checkpoints must not become public installer downloads.
+      # A signed release workflow must be reviewed before public distribution.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: github.event.repository.private
         with:
           name: windows-installer
           path: |

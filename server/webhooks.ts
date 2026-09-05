@@ -140,7 +140,7 @@ function newSecret(): string {
   return `whsec_${randomBytes(32).toString("base64url")}`;
 }
 
-function cleanInput(input: WebhookTriggerInput): Omit<WebhookTrigger, "id" | "endpointId" | "createdAt" | "updatedAt" | "lastReceivedAt" | "lastRunId" | "deliveryCount" | "verifiedAt" | "verificationSample"> {
+function cleanInput(input: Partial<WebhookTriggerInput>): Omit<WebhookTrigger, "id" | "endpointId" | "createdAt" | "updatedAt" | "lastReceivedAt" | "lastRunId" | "deliveryCount" | "verifiedAt" | "verificationSample"> {
   const name = String(input.name ?? "").trim().slice(0, 80);
   const prompt = String(input.prompt ?? "").trim().slice(0, 20_000);
   const botId = String(input.botId ?? "").trim();
@@ -263,7 +263,7 @@ export class WebhookManager {
     return this.attempts.map((attempt) => ({ ...attempt }));
   }
 
-  create(input: WebhookTriggerInput): { webhook: WebhookTrigger; secret: string } {
+  create(input: Partial<WebhookTriggerInput>): { webhook: WebhookTrigger; secret: string } {
     const clean = cleanInput(input);
     if (this.options.botState(clean.botId) === "missing") fail(400, "That agent no longer exists");
     const now = this.now();

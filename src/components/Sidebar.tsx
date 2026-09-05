@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -366,7 +365,7 @@ function ImportTeamPanel({
       for (const bot of response.bots) dispatch({ type: "botAdded", bot });
       dispatch({ type: "groupPatched", group: response.group });
       dispatch({ type: "select", id: response.group.id });
-      track("team_imported", { members: response.bots.length });
+
       onImported(pending.name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -503,7 +502,7 @@ function ExportTeamPanel({
     setError("");
     try {
       const exported = await downloadSelectedTeam(teamName, [...picked]);
-      track("team_exported", { members: exported.members });
+
       onExported(exported.name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -631,7 +630,7 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
   const create = () => {
     if (!picked.size) return;
     dispatch({ type: "createGroup", memberIds: [...picked], name: name.trim() || undefined });
-    track("room_created", { members: picked.size });
+
     onClose();
   };
   return (
@@ -987,7 +986,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 <button
                   onClick={() => {
                     setPlusOpen(false);
-                    track("bot_created");
+
                     dispatch({ type: "newBot" });
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"

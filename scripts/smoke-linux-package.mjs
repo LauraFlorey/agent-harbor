@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,9 @@ const executable = path.resolve(
 );
 if (!existsSync(executable)) throw new Error(`[smoke-linux-package] missing executable: ${executable}`);
 
+if (realpathSync(executable).startsWith(realpathSync(root) + path.sep)) {
+  throw new Error("Copy the package outside the checkout and set OMB_SMOKE_EXECUTABLE before testing");
+}
 const sandbox = mkdtempSync(path.join(tmpdir(), "omb-linux-smoke-"));
 const home = path.join(sandbox, "home");
 const xdgConfig = path.join(sandbox, "config");
@@ -27,7 +30,7 @@ chmodSync(sentinel, 0o755);
 let output = "";
 let smokeResult = null;
 const child = spawn(executable, [], {
-  cwd: root,
+  cwd: sandbox,
   detached: true,
   env: {
     ...process.env,
@@ -85,6 +88,7 @@ async function stopProcess() {
 try {
   const result = await until(async () => smokeResult, "the packaged renderer smoke result");
   const { capabilities, health, location, title } = result;
+  if (result.authenticated !== true) throw new Error("packaged authentication was not verified");
   if (health?.app !== "openmausbot" || health.static !== true) {
     throw new Error(`unexpected embedded health response: ${JSON.stringify(health)}`);
   }

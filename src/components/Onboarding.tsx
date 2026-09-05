@@ -1,6 +1,7 @@
+import { workspaceFetch } from "@/lib/api-auth";
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, AlertTriangle, Loader2, Mic } from "lucide-react";
-import { identifyEmail, setEmailGateDone, track } from "@/lib/analytics";
+import { setEmailGateDone } from "@/lib/onboarding";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { EngineSetup } from "./EngineSetup";
 import type { InstanceInfo } from "@/state/store";
@@ -75,13 +76,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
   const [instances, setInstances] = useState<InstanceRow[] | null>(null);
   const [perms, setPerms] = useState<{ mic: string } | null>(null);
-  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+  const valid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 
   const saveProfile = () => {
-    identifyEmail(email.trim().toLowerCase());
     // persisted server-side (~/.openmausbot/config.json) — the sidebar
     // footer reads it back through /api/config
-    void fetch("/api/config", {
+    void workspaceFetch("/api/config", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile: { name: name.trim(), email: email.trim().toLowerCase() } }),
@@ -90,7 +90,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   };
 
   useEffect(() => {
-    track("onboarding_step", { step });
+
   }, [step]);
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     let latestRequest = 0;
     const refresh = () => {
       const request = ++latestRequest;
-      fetch("/api/instances")
+      workspaceFetch("/api/instances")
         .then((r) => r.json())
         .then((d) => active && request === latestRequest && setInstances(d.instances ?? []))
         .catch(() => active && request === latestRequest && setInstances([]));
@@ -123,10 +123,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   }, [step, capabilities.dictation.available]);
 
   const finish = () => {
-    track("onboarding_completed", {
-      engines_available: instances?.filter((i) => i.snapshot.state === "available").length ?? -1,
-      mic: perms?.mic ?? "n/a",
-    });
     setEmailGateDone("submitted");
     onDone();
   };
@@ -146,8 +142,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <img src="/app-icon.svg" alt="" className="size-[72px]" />
             <h1 className="mt-4 text-[20px] font-semibold text-ink">Welcome to Agent Harbor</h1>
             <p className="mt-1.5 text-center text-[14px] leading-relaxed text-ink-secondary">
-              Bots that do real work on their own computer. Tell us who you are
-              and we&rsquo;ll let you know when big things ship.
+              Add an optional local profile for this workspace. Your name and email stay on this device; no analytics are collected.
             </p>
             <input
               autoFocus
@@ -162,7 +157,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && valid && saveProfile()}
-              placeholder="you@example.com"
+              placeholder="Email (optional, stored locally)"
               className="mt-3 w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
             />
             <button
@@ -174,7 +169,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             </button>
             <button
               onClick={() => {
-                track("email_skipped");
+
                 setStep(1);
               }}
               className="mt-3 text-[12px] text-ink-secondary hover:text-ink"

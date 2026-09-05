@@ -1,3 +1,4 @@
+import { workspaceFetch } from "@/lib/api-auth";
 // The speaker — one voice for the whole window.
 //
 // Deliberately a singleton: two bots talking over each other is never what
@@ -156,7 +157,7 @@ export class Speaker {
   }
 
   private async prepare(text: string, voiceId: string | undefined, signal: AbortSignal): Promise<string[]> {
-    const res = await fetch("/api/tts/prepare", {
+    const res = await workspaceFetch("/api/tts/prepare", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, voiceId }),
@@ -169,7 +170,7 @@ export class Speaker {
   }
 
   private async render(text: string, voiceId: string | undefined, signal: AbortSignal): Promise<Blob> {
-    const res = await fetch("/api/tts/speak", {
+    const res = await workspaceFetch("/api/tts/speak", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, voiceId }),

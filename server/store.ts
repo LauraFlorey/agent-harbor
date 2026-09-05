@@ -46,6 +46,14 @@ export interface OptionCardData {
   held?: string;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  /** Application-owned Local VM approvals deliberately omit allowKey and
+   * carry only bounded display metadata. */
+  approvalKind?: "openrouter-local-vm" | "openrouter-local-vm-session";
+  modelLabel?: string;
+  destination?: "Local VM";
+  consequential?: boolean;
+  expiresAt?: number;
+  oneAttempt?: boolean;
 }
 
 export interface Message {
@@ -136,6 +144,8 @@ export interface BotRecord {
   name: string;
   title: string;
   description: string;
+  /** Owner-authored instructions applied to every turn for this bot. */
+  systemInstructions?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;
@@ -145,6 +155,9 @@ export interface BotRecord {
   resumeCursors: Record<string, unknown>;
   /** Which computer the bot acts on. Unset legacy values fail closed as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Independent consent for the experimental OpenRouter Local VM loop.
+   * Absent persisted values are false and are never migrated implicitly. */
+  openrouterLocalVm?: boolean;
   /** Start local provider CLIs in the user's home directory instead of this
    * bot's private workspace. Off by default and never exported with teams. */
   hostAccess?: boolean;
@@ -178,6 +191,8 @@ export interface BotRecord {
   busy?: boolean;
   createdAt: number;
 }
+
+export const MAX_SYSTEM_INSTRUCTIONS_LENGTH = 20_000;
 
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
@@ -305,6 +320,13 @@ export class Store {
     let groupsMigrated = false;
     for (const b of this.bots) {
       b.busy = false;
+      if (b.systemInstructions !== undefined && typeof b.systemInstructions !== "string") {
+        b.systemInstructions = "";
+        botsMigrated = true;
+      } else if ((b.systemInstructions?.length ?? 0) > MAX_SYSTEM_INSTRUCTIONS_LENGTH) {
+        b.systemInstructions = b.systemInstructions!.slice(0, MAX_SYSTEM_INSTRUCTIONS_LENGTH);
+        botsMigrated = true;
+      }
       // Pre-isolation releases used an unset computer value as an implicit
       // host/cloud "Auto" grant. Migrate that ambiguity to explicit Off,
       // and make the new host-files permission explicit too.
@@ -586,7 +608,7 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection">
+      Pick<BotRecord, "name" | "title" | "description" | "systemInstructions" | "color" | "mascotExpression" | "modelSelection">
     > = {},
   ): BotRecord {
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
@@ -596,6 +618,7 @@ export class Store {
       name,
       title: profile.title ?? "",
       description: profile.description ?? "",
+      systemInstructions: (profile.systemInstructions ?? "").slice(0, MAX_SYSTEM_INSTRUCTIONS_LENGTH),
       notifications: true,
       color: profile.color ?? COLORS[this.bots.length % COLORS.length],
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
@@ -603,6 +626,7 @@ export class Store {
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},
       computer: "off",
+      openrouterLocalVm: false,
       hostAccess: false,
       createdAt: Date.now(),
     };

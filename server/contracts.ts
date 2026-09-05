@@ -63,6 +63,23 @@ export interface InstanceConfig {
 
 export type InstanceConfigMap = Record<InstanceId, InstanceConfig>;
 
+/** A stdio MCP subprocess descriptor. Credentials and other private values
+ * belong in `env`; callers must never encode them into `args`. */
+export interface StdioMcpEndpoint {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+/** Per-model evidence for the narrowly reviewed server-owned Local VM loop.
+ * This is catalog information only: turn-time feature, agent, conversation,
+ * destination, and runtime checks remain separate application authorities. */
+export interface LocalVmModelCapability {
+  status: "verified" | "unsupported" | "unknown";
+  reason: string;
+  manifestRevision?: string;
+}
+
 // ── canonical runtime events ───────────────────────────────────────────
 // Subset of upstream's 49-member ProviderRuntimeEvent union — the ~12 types
 // the recipe says to start with, sharing one base. `raw` carries the
@@ -130,18 +147,32 @@ export interface SendTurnInput {
   system?: string;
   /** Per-bot integrations the driver may hand to the agent as tools. */
   integrations?: {
+    /** Provider-hosted, read-only public web research. The harness supplies
+     * bounded policy; providers decide whether their native/server search
+     * implementation can satisfy it. */
+    webResearch?: {
+      maxUses: number;
+      maxResults: number;
+      maxTotalResults: number;
+      searchContextSize: "low" | "medium" | "high";
+    };
     composio?: { url?: string; key: string };
     /** Cloud computer, reached through Agent Harbor's REST-to-MCP adapter. */
     computer?: { kind?: "box"; boxId: string; token: string };
     /** Direct stdio connection to a Cua Driver MCP server (host or sandbox). */
-    localComputer?: { command: string; args: string[]; env: Record<string, string> };
+    localComputer?: StdioMcpEndpoint;
     /** Peer-agent comms: an MCP proxy (list_bots / ask_bot) that routes back
      * through the harness so this bot can message other bots. The harness
      * owns turns, permissions, and recursion limits; the proxy only forwards. */
-    agents?: { command: string; args: string[]; env: Record<string, string> };
+    agents?: StdioMcpEndpoint;
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Harness-owned one-turn bridge for an already authorized isolated
+     * Local VM. The provider can use discovered tools through the returned
+     * approval-gated context, but cannot inspect, select, or replace the
+     * destination or resolve its own approvals. */
+    serverToolTurn?: ServerToolTurnBridge;
   };
   cwd?: string;
 }
@@ -149,6 +180,47 @@ export interface SendTurnInput {
 export interface TurnStartResult {
   turnId: TurnId;
 }
+
+/** The harness-normalized tool surface used by server-owned tool loops.
+ * Provider transports translate these values to and from their native wire
+ * format; MCP discovery/execution remains a harness responsibility. */
+export interface ProviderToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export type ProviderToolResultContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+export interface ProviderToolResult {
+  callId: string;
+  content: ProviderToolResultContent[];
+  isError: boolean;
+}
+
+export interface ServerToolTurnContext {
+  readonly tools: readonly ProviderToolDefinition[];
+  readonly signal: AbortSignal;
+  execute(call: ProviderToolCall): Promise<ProviderToolResult>;
+}
+
+export interface ServerToolTurnBridge {
+  run<T>(
+    turnId: TurnId,
+    signal: AbortSignal,
+    operation: (context: ServerToolTurnContext) => Promise<T>,
+  ): Promise<T>;
+}
+
+export type ComputerUseMode = "none" | "mcp" | "native" | "server";
 
 export interface ProviderAdapter {
   readonly provider: DriverKind;
@@ -162,10 +234,12 @@ export interface ProviderAdapter {
      * are eligible for detached Cloud VM routines; local-process providers
      * may receive a host working directory. */
     executionMode: "local-process" | "remote-computer";
-    /** How computer control reaches the model. `mcp` providers can mount a
-     * selected host, local-VM, or cloud-computer MCP endpoint. `native`
-     * providers already execute inside their remote computer. */
-    computerUse: "none" | "mcp" | "native";
+    /** How computer control reaches the model. `mcp` providers mount an MCP
+     * endpoint themselves; `native` providers execute inside their remote
+     * computer; `server` providers use a harness-owned tool loop. The server
+     * mode is restricted to the isolated Local VM until later destinations
+     * receive their own reviewed routing and safety work. */
+    computerUse: ComputerUseMode;
     /** True when the driver mounts turn.integrations.agents as MCP tools —
      * the harness only offers agents tooling (and prompts about it) to
      * drivers that can actually hand it to the agent. */
@@ -189,6 +263,18 @@ export interface ProviderAdapter {
   hasSession(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
+}
+
+/** Local VM eligibility is behavioral, never inferred from a provider name.
+ * Server-driven API engines are eligible without claiming that they mount
+ * MCP themselves; host and cloud routing remain deliberately separate. */
+export function providerSupportsLocalVm(
+  capabilities: Pick<ProviderAdapter["capabilities"], "computerUse" | "executionMode">,
+): boolean {
+  return (
+    capabilities.executionMode === "local-process" &&
+    (capabilities.computerUse === "mcp" || capabilities.computerUse === "server")
+  );
 }
 
 // ── provider snapshot (upstream ServerProviderShape, reduced) ────────────
@@ -227,7 +313,7 @@ export interface EngineInstall {
 // a rejection to an unavailable shadow snapshot.
 export interface ModelCatalog {
   default: string;
-  options: Array<{ id: string; label: string }>;
+  options: Array<{ id: string; label: string; localVm?: LocalVmModelCapability }>;
 }
 
 export interface DriverCreateInput<Config> {
@@ -245,7 +331,7 @@ export interface ProviderInstance {
   readonly enabled: boolean;
   readonly models: ModelCatalog;
   /** Refresh a live catalog without recreating the provider instance. */
-  readonly refreshModels?: () => Promise<void>;
+  readonly refreshModels?: (signal?: AbortSignal) => Promise<void>;
   readonly adapter: ProviderAdapter;
   snapshot(): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */

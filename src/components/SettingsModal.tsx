@@ -1,3 +1,4 @@
+import { workspaceFetch } from "@/lib/api-auth";
 // App settings, as a real modal with sections rather than one long panel.
 // Per-bot settings (persona, model, computer) stay in SettingsPanel — this
 // is the stuff shared by every bot: who you are, your keys, and the
@@ -30,7 +31,7 @@ function ProfileFields() {
   }, [state.config?.profile?.name, state.config?.profile?.email]);
 
   const save = () => {
-    void fetch("/api/config", {
+    void workspaceFetch("/api/config", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile: { name: name.trim(), email: email.trim().toLowerCase() } }),

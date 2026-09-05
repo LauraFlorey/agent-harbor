@@ -17,6 +17,7 @@ describe("team manifests", () => {
           name: "Mira",
           title: "Lead",
           description: "Coordinates the work",
+          systemInstructions: "Keep the plan practical.",
           color: "purple",
           mascotExpression: "focused",
         },
@@ -43,6 +44,7 @@ describe("team manifests", () => {
       },
     });
     expect(JSON.stringify(manifest)).not.toMatch(/bot-a|bot-b|thread|model|permission|message/i);
+    expect(manifest.team.members[0]?.systemInstructions).toBe("Keep the plan practical.");
   });
 
   it("parses the supported portable fields and drops unrelated settings", () => {
@@ -57,6 +59,7 @@ describe("team manifests", () => {
             name: " Ada ",
             title: " Analyst ",
             description: " Checks the evidence ",
+            systemInstructions: " Cite primary sources. ",
             appearance: { color: "green" },
             modelSelection: { instanceId: "private-machine" },
             alwaysAllow: ["everything"],
@@ -77,6 +80,7 @@ describe("team manifests", () => {
       name: "Ada",
       title: "Analyst",
       description: "Checks the evidence",
+      systemInstructions: "Cite primary sources.",
       appearance: { color: "green" },
     });
     expect(manifest.team.room).toEqual({

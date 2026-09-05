@@ -29,6 +29,7 @@ describe("Store", () => {
     expect(messages[1].card?.options.length).toBeGreaterThan(1);
     expect(bot.modelSelection).toEqual(selection());
     expect(bot.computer).toBe("off");
+    expect(bot.openrouterLocalVm).toBe(false);
     expect(bot.hostAccess).toBe(false);
     const workspace = join(AGENT_WORKSPACES_DIR, bot.id);
     expect(existsSync(workspace)).toBe(true);
@@ -82,6 +83,38 @@ describe("Store", () => {
     expect(back.busy).toBe(false);
     const messages = reloaded.messagesFor(bot.threadId);
     expect(messages.at(-1)).toMatchObject({ role: "user", text: "hi there" });
+  });
+
+  it("persists owner-authored system instructions without changing other agent permissions", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, { systemInstructions: "Use primary sources and explain uncertainty." });
+
+    const reloaded = new Store(selection).bot(bot.id)!;
+    expect(reloaded.systemInstructions).toBe("Use primary sources and explain uncertainty.");
+    expect(reloaded).toMatchObject({ computer: "off", hostAccess: false, openrouterLocalVm: false });
+  });
+
+  it("bounds malformed persisted system instructions without changing other agent settings", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, {
+      modelSelection: { instanceId: "openrouter", model: "vendor/model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
+    const botsFile = join(DATA_DIR, "bots.json");
+    const saved: BotRecord[] = JSON.parse(readFileSync(botsFile, "utf8"));
+    saved[0]!.systemInstructions = "x".repeat(20_001);
+    writeFileSync(botsFile, JSON.stringify(saved));
+
+    const reloaded = new Store(selection).bot(bot.id)!;
+    expect(reloaded.systemInstructions).toHaveLength(20_000);
+    expect(reloaded).toMatchObject({
+      modelSelection: { instanceId: "openrouter", model: "vendor/model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
   });
 
   it("migrates unambiguous legacy peer grants without guessing duplicate names", () => {
@@ -142,6 +175,57 @@ describe("Store", () => {
     expect(migrated.hostAccess).toBe(false);
     expect(existsSync(join(AGENT_WORKSPACES_DIR, bot.id))).toBe(true);
     expect(JSON.parse(readFileSync(botsFile, "utf8"))[0]).toMatchObject({ computer: "off", hostAccess: false });
+  });
+
+  it("does not rewrite existing bot settings while defaulting new OpenRouter Local VM permission off", () => {
+    const store = new Store(selection);
+    const first = store.createBot();
+    const second = store.createBot();
+    const third = store.createBot();
+    const group = store.createGroup("Mixed providers", [first.id, second.id, third.id]);
+    store.patchBot(first.id, {
+      modelSelection: { instanceId: "openrouter", model: "openai/gpt-5.6-terra" },
+      computer: "vm",
+      openrouterLocalVm: true,
+      alwaysAllow: ["Bash:git"],
+    });
+    store.patchBot(second.id, {
+      modelSelection: { instanceId: "openrouter", model: "vendor/text-model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
+    store.patchBot(third.id, {
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      computer: "local",
+      approvePeerComms: true,
+    });
+
+    const persisted: BotRecord[] = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
+    const legacy = persisted.find((bot) => bot.id === second.id)!;
+    delete legacy.openrouterLocalVm;
+    writeFileSync(join(DATA_DIR, "bots.json"), JSON.stringify(persisted));
+
+    const reloaded = new Store(selection);
+    expect(reloaded.group(group.id)?.memberIds).toEqual([first.id, second.id, third.id]);
+    expect(reloaded.bot(first.id)).toMatchObject({
+      modelSelection: { instanceId: "openrouter", model: "openai/gpt-5.6-terra" },
+      computer: "vm",
+      openrouterLocalVm: true,
+      alwaysAllow: ["Bash:git"],
+    });
+    expect(reloaded.bot(second.id)).toMatchObject({
+      modelSelection: { instanceId: "openrouter", model: "vendor/text-model" },
+      computer: "cloud",
+      hostAccess: true,
+    });
+    expect(reloaded.bot(second.id)?.openrouterLocalVm).toBeUndefined();
+    expect(reloaded.bot(third.id)).toMatchObject({
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      computer: "local",
+      approvePeerComms: true,
+    });
+    expect(JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"))
+      .find((bot: BotRecord) => bot.id === second.id)).not.toHaveProperty("openrouterLocalVm");
   });
 
   it("keeps exactly one persisted Chief of Staff and supports handoff", () => {

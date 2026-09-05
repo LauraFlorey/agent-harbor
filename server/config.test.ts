@@ -119,6 +119,18 @@ describe("secure config storage", () => {
     expect(loadConfig().tts?.key).toBeUndefined();
   });
 
+  it("persists the OpenRouter Local VM kill switch without exposing or inventing credentials", () => {
+    expect(loadConfig().openrouter?.localVmEnabled).not.toBe(true);
+    saveConfig({ openrouter: { localVmEnabled: true } });
+    expect(loadConfig().openrouter).toMatchObject({ localVmEnabled: true, apiKey: undefined });
+    expect(JSON.parse(readFileSync(join(DATA_DIR, "config.json"), "utf8"))).toEqual({
+      openrouter: { localVmEnabled: true },
+    });
+
+    saveConfig({ openrouter: { localVmEnabled: false } });
+    expect(loadConfig().openrouter?.localVmEnabled).toBe(false);
+  });
+
   it.skipIf(process.platform === "win32")("refuses a symlink in place of private managed state", () => {
     const outside = join(DATA_DIR, "outside.json");
     writeFileSync(outside, JSON.stringify({ profile: { name: "Outside" } }));

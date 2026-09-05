@@ -33,24 +33,28 @@
     "test:watch": "vitest",
     "test:cua": "pnpm build:cua && node scripts/smoke-cua.mjs",
     "test:cua-container": "node scripts/smoke-cua-container.mjs",
-    "check:electron": "node --check scripts/dev-all.mjs && node --check electron/main.mjs && node --check electron/terminal-launch.mjs && node --check electron/preload.cjs && node --check electron/capabilities.cjs && node --check electron/cua-connection.cjs && node --check electron/cua.mjs && node --check electron/external-url.cjs && node --check electron/speech.mjs",
+    "check:electron": "node --check scripts/dev-all.mjs && node --check electron/main.mjs && node --check electron/terminal-launch.mjs && node --check electron/preload.cjs && node --check electron/capabilities.cjs && node --check electron/cua-connection.cjs && node --check electron/cua.mjs && node --check electron/external-url.cjs && node --check electron/speech.mjs && node --check electron/security.cjs && node --check scripts/build-server.mjs && node --check scripts/verify-server-package.mjs && node --check scripts/smoke-desktop-security.mjs && node --check scripts/dev-access.mjs",
     "preview": "vite preview",
-    "build:server": "tsc -p tsconfig.server.build.json",
+    "build:server": "node scripts/build-server.mjs",
     "build:speech": "node electron/build-speech-helper.mjs",
     "build:cua": "node scripts/prepare-cua.mjs",
     "build:updater": "node scripts/bundle-updater.mjs",
-    "package:prepare": "pnpm build && pnpm build:server && pnpm build:updater",
+    "package:prepare": "pnpm build && pnpm build:server && pnpm check:server-package && pnpm build:updater",
     "package:mac": "pnpm package:prepare && pnpm build:speech && pnpm build:cua && electron-builder --mac --publish never",
     "package:win": "pnpm package:prepare && electron-builder --win --publish never",
     "package:linux": "pnpm package:prepare && electron-builder --linux --x64 --publish never",
     "package:linux:dir": "pnpm package:prepare && electron-builder --linux dir --x64 --publish never",
-    "package": "pnpm package:mac"
+    "package": "pnpm package:mac",
+    "dev:access": "node scripts/dev-access.mjs",
+    "check:server-package": "node scripts/verify-server-package.mjs",
+    "lint": "eslint server src electron scripts",
+    "test:desktop-security": "electron scripts/smoke-desktop-security.mjs"
   },
   "dependencies": {
     "@trycua/cua-driver": "0.20.0",
+    "ajv": "8.20.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
-    "posthog-js": "^1.415.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -59,6 +63,7 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.1.11",
     "@types/node": "^26.2.0",
     "@types/react": "^19.1.9",
@@ -68,9 +73,17 @@
     "electron-builder": "^26.15.3",
     "electron-updater": "^6.8.9",
     "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.69.0",
     "vite": "^7.1.0",
     "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri@<3.1.6": "3.1.6",
+      "@xmldom/xmldom@<0.8.15": "0.8.15"
+    }
   }
 }

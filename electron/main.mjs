@@ -1,6 +1,8 @@
 import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell, systemPreferences, utilityProcess } from "electron";
 import fs from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
+import securityModule from "./security.cjs";
 import { fileURLToPath } from "node:url";
 import { startCua, stopCua } from "./cua.mjs";
 import { cleanupStaleSpeechSessions, finishSpeech, startSpeech, stopSpeech } from "./speech.mjs";
@@ -16,7 +18,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
-let SERVER_PORT = 8799;
+let SERVER_PORT = Number(process.env.OMB_PORT ?? 8799);
+const { allowedNavigation, trustedFrame, createIpcGuard, readSessionToken } = securityModule;
+const windows = new Set();
+function appOrigin() { return app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin; }
+if (!app.isPackaged && (!['127.0.0.1', 'localhost'].includes(new URL(DEV_URL).hostname) || new URL(DEV_URL).protocol !== 'http:')) throw new Error('Development UI must use a loopback HTTP origin');
+const handleIpc = createIpcGuard(ipcMain, appOrigin, (sender) => windows.has(sender));
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -149,10 +156,21 @@ function createWindow() {
         : {}),
     webPreferences: {
       contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
       preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
+  windows.add(win.webContents);
+  win.webContents.once("destroyed", () => windows.delete(win.webContents));
+  for (const eventName of ["will-navigate", "will-redirect", "will-frame-navigate"]) {
+    win.webContents.on(eventName, (event, url) => {
+      const target = typeof url === "string" ? url : event.url;
+      if (!allowedNavigation(target, appOrigin())) event.preventDefault();
+    });
+  }
+  win.webContents.on("will-attach-webview", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(({ url }) => {
     // Agent-authored markdown can emit any scheme — only web/mail links may
     // reach the OS opener (file:, smb:, custom handlers stay denied).
@@ -177,7 +195,19 @@ function createWindow() {
               throw new Error(\`health request failed: \${healthResponse.status} \${healthResponse.statusText}\`);
             }
             const health = await healthResponse.json();
-            return { capabilities, health, location: window.location.href, title: document.title };
+            const token = await window.ogb.getSessionToken();
+            const headers = { authorization: "Bearer " + token };
+            const [owner, stranger, events] = await Promise.all([
+              fetch("/api/bots", { headers }),
+              fetch("/api/bots"),
+              fetch("/api/events", { headers }),
+            ]);
+            const reader = events.body?.getReader();
+            const first = reader ? await reader.read() : null;
+            await reader?.cancel();
+            const authenticated = owner.status === 200 && stranger.status === 401 && events.status === 200 && new TextDecoder().decode(first?.value).includes("hello");
+            if (!authenticated) throw new Error("packaged workspace authentication or events failed");
+            return { capabilities, health, authenticated, location: window.location.href, title: document.title };
           })()
         `);
         const expectedLocation = `http://127.0.0.1:${SERVER_PORT}/`;
@@ -208,9 +238,13 @@ function createWindow() {
   return win;
 }
 
+handleIpc("workspace:session", () => readSessionToken(
+  path.join(process.env.OMB_DATA_DIR ?? path.join(homedir(), ".openmausbot"), `session-${SERVER_PORT}.json`), SERVER_PORT,
+));
+
 // "This Mac" screen preview — served from the main process so the Screen
 // Recording permission prompt attributes to the app, never the server
-ipcMain.handle("screen:frame", async () => {
+handleIpc("screen:frame", async () => {
   if (process.platform !== "darwin") return null;
   const sources = await desktopCapturer.getSources({
     types: ["screen"],
@@ -236,19 +270,19 @@ ipcMain.handle("screen:frame", async () => {
 // Copy the engine command, then open a blank terminal. Renderer-controlled
 // text must never become a process argument: the user reviews and pastes it.
 // Returns false when the renderer should show the clipboard fallback.
-ipcMain.handle("engine:open-terminal", async (_event, command) => {
+handleIpc("engine:open-terminal", async (_event, command) => {
   if (typeof command !== "string" || !command.trim()) return false;
   clipboard.writeText(command);
   return openBlankTerminal();
 });
 
-ipcMain.handle("perm:status", () => ({
+handleIpc("perm:status", () => ({
   mic:
     process.platform === "darwin"
       ? systemPreferences.getMediaAccessStatus?.("microphone") ?? "unknown"
       : "unsupported",
 }));
-ipcMain.handle("perm:request-mic", async () => {
+handleIpc("perm:request-mic", async () => {
   if (process.platform !== "darwin") return false;
   try {
     return await systemPreferences.askForMediaAccess("microphone");
@@ -259,7 +293,7 @@ ipcMain.handle("perm:request-mic", async () => {
 
 // macOS never re-prompts a denied permission — the only path is System
 // Settings; deep-link straight to the right privacy pane.
-ipcMain.handle("perm:open-settings", (_event, pane) => {
+handleIpc("perm:open-settings", (_event, pane) => {
   if (process.platform !== "darwin") return false;
   const panes = {
     mic: "Privacy_Microphone",
@@ -272,7 +306,7 @@ ipcMain.handle("perm:open-settings", (_event, pane) => {
   return shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`);
 });
 
-ipcMain.handle("speech:start", (event, options) => {
+handleIpc("speech:start", (event, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
   if (process.platform !== "darwin") {
@@ -281,14 +315,14 @@ ipcMain.handle("speech:start", (event, options) => {
   }
   startSpeech(win, options);
 });
-ipcMain.handle("speech:stop", () => {
+handleIpc("speech:stop", () => {
   if (process.platform === "darwin") stopSpeech();
 });
-ipcMain.handle("speech:finish", () => {
+handleIpc("speech:finish", () => {
   if (process.platform === "darwin") finishSpeech();
 });
 
-ipcMain.handle("desktop:capabilities", async () =>
+handleIpc("desktop:capabilities", async () =>
   desktopCapabilities({
     platform: process.platform,
     env: process.env,
@@ -317,7 +351,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // prompts). Used by the onboarding "Enable screen preview" button.
   if (process.platform === "darwin") {
     session.defaultSession.setDisplayMediaRequestHandler(
-      (_request, callback) => {
+      (request, callback) => {
+        const owner = BrowserWindow.getAllWindows().find((window) => window.webContents.mainFrame === request.frame);
+        if (!owner || !windows.has(owner.webContents) || !request.userGesture || !trustedFrame(request.frame, owner.webContents.mainFrame, appOrigin())) {
+          callback({}); return;
+        }
         desktopCapturer
           .getSources({ types: ["screen"] })
           .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
@@ -326,7 +364,15 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       { useSystemPicker: false },
     );
   }
-  registerUpdaterIpc();
+  const permitted = new Set(["notifications", "media", "display-capture"]);
+  session.defaultSession.setPermissionCheckHandler((contents, permission, origin) =>
+    Boolean(contents && windows.has(contents) && allowedNavigation(origin, appOrigin()) && permitted.has(permission)),
+  );
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const audioOnly = permission !== "media" || (details.mediaTypes?.length > 0 && details.mediaTypes.every((type) => type === "audio"));
+    callback(windows.has(contents) && details.isMainFrame === true && allowedNavigation(details.requestingUrl, appOrigin()) && permitted.has(permission) && audioOnly);
+  });
+  registerUpdaterIpc(handleIpc);
   // Start the CUA daemon before the window so the harness can pick up the
   // connection descriptor on first render. Never blocks window creation on
   // failure — computer use degrades to "unavailable", the rest still works.

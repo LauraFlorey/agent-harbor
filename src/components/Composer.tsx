@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Clock, Mic, Square, Users, X } from "lucide-react";
 import { useStore, visibleMessages, type Bot, type Group } from "@/state/store";
@@ -144,10 +143,10 @@ export function Composer({
     }
     if (group) {
       dispatch({ type: "sendGroup", groupId: group.id, text: t });
-      track("message_sent", { room: true });
+
     } else if (bot) {
       dispatch({ type: "send", botId: bot.id, text: t });
-      track("message_sent", { driver: bot.modelSelection?.instanceId });
+
     }
     setText("");
     setAttachments([]);
@@ -156,7 +155,7 @@ export function Composer({
     if (!busy && queued) {
       if (group) dispatch({ type: "sendGroup", groupId: group.id, text: queued });
       else if (bot) dispatch({ type: "send", botId: bot.id, text: queued });
-      track("message_sent", { queued: true });
+
       setQueued(null);
     }
   }, [busy, queued, bot, group, dispatch]);

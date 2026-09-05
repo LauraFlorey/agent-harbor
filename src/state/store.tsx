@@ -1,3 +1,5 @@
+import { AuthenticatedEvents } from "@/lib/authenticated-events";
+import { workspaceFetch } from "@/lib/api-auth";
 // Server-backed store. The React app holds no transports of its own:
 // it dispatches typed commands over HTTP and folds the one SSE event
 // stream from the harness server into local state. The reducer stays
@@ -13,13 +15,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { EffortLevel } from "../../server/contracts.ts";
+import type { ComputerUseMode, EffortLevel } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
 import { showNotification } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
+import { nextLocalVmPreviewNonce } from "@/lib/local-vm-preview";
 
 export type { MausColor } from "@/lib/mascot";
 
@@ -37,6 +40,12 @@ export interface OptionCardData {
   held?: string;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  approvalKind?: "openrouter-local-vm" | "openrouter-local-vm-session";
+  modelLabel?: string;
+  destination?: "Local VM";
+  consequential?: boolean;
+  expiresAt?: number;
+  oneAttempt?: boolean;
 }
 
 export interface Message {
@@ -107,6 +116,8 @@ export interface Bot {
   name: string;
   title: string;
   description: string;
+  /** Owner-authored instructions applied to every turn for this agent. */
+  systemInstructions?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
@@ -115,6 +126,8 @@ export interface Bot {
   modelSelection: ModelSelection;
   /** Where this bot's computer runs; unset legacy values are treated as off. */
   computer?: "cloud" | "vm" | "local" | "off";
+  /** Separate, default-off consent for OpenRouter to use the Local VM. */
+  openrouterLocalVm?: boolean;
   /** Explicit opt-in to start local provider CLIs in the user's home folder. */
   hostAccess?: boolean;
   /** auto mode: the bot approves its own tool permissions */
@@ -167,7 +180,7 @@ export function messageVersions(bot: Bot, message: Message): Message[] {
 /** GET /api/config — configured flags only; secrets are never echoed. */
 export interface ConfigStatus {
   xai?: { configured: boolean };
-  openrouter?: { configured: boolean };
+  openrouter?: { configured: boolean; localVmEnabled: boolean };
   composio: { configured: boolean; apiKeyConfigured?: boolean };
   box: { configured: boolean };
   opencodeGo?: { configured: boolean };
@@ -200,11 +213,18 @@ export interface InstanceInfo {
     authenticated?: boolean;
     version?: string | null;
   };
-  models: { default: string; options: Array<{ id: string; label: string }> };
+  models: {
+    default: string;
+    options: Array<{
+      id: string;
+      label: string;
+      localVm?: { status: "verified" | "unsupported" | "unknown"; reason: string; manifestRevision?: string };
+    }>;
+  };
   capabilities?: {
     contextMode?: "resume-cursor" | "transcript-replay" | "provider-managed";
     executionMode?: "local-process" | "remote-computer";
-    computerUse?: "none" | "mcp" | "native";
+    computerUse?: ComputerUseMode;
     agentsMcp?: boolean;
     effortLevels?: readonly EffortLevel[];
   };
@@ -233,6 +253,8 @@ interface AppState {
   appSettingsSection: AppSettingsSection;
   /** latest live frame of a bot's computer, per botId */
   screens: Record<string, { png: string; mime: string }>;
+  localVmTurns: Record<string, "preparing" | "contended" | "working" | "waiting-approval" | "cleaning" | "failed" | "metadata-unverified" | "idle">;
+  localVmPreviewNonce: Record<string, number>;
   /** bots whose cloud computer is being provisioned */
   provisioning: Record<string, boolean>;
   connected: boolean;
@@ -307,6 +329,8 @@ type Action =
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
   | { type: "screenFrame"; botId: string; png: string; mime: string }
+  | { type: "localVmTurnState"; botId: string; state: AppState["localVmTurns"][string] }
+  | { type: "localVmPreview"; botId: string }
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "setModel"; botId: string; selection: ModelSelection; computer?: "off" }
   | { type: "interrupt"; botId: string }
@@ -325,8 +349,10 @@ type Action =
           | "name"
           | "title"
           | "description"
+          | "systemInstructions"
           | "notifications"
           | "computer"
+          | "openrouterLocalVm"
           | "color"
           | "mascotExpression"
           | "autoApprove"
@@ -609,6 +635,16 @@ function reducer(state: AppState, action: Action): AppState {
         screens: { ...state.screens, [action.botId]: { png: action.png, mime: action.mime } },
         provisioning: { ...state.provisioning, [action.botId]: false },
       };
+    case "localVmTurnState":
+      return { ...state, localVmTurns: { ...state.localVmTurns, [action.botId]: action.state } };
+    case "localVmPreview":
+      return {
+        ...state,
+        localVmPreviewNonce: {
+          ...state.localVmPreviewNonce,
+          [action.botId]: nextLocalVmPreviewNonce(state.localVmPreviewNonce[action.botId]),
+        },
+      };
     case "provisioning":
       return {
         ...(action.on ? withMascotMotion(state, action.botId, "launch") : state),
@@ -771,6 +807,8 @@ const initialState: AppState = {
   appSettingsOpen: false,
   appSettingsSection: "general",
   screens: {},
+  localVmTurns: {},
+  localVmPreviewNonce: {},
   provisioning: {},
   connected: false,
   error: null,
@@ -779,7 +817,7 @@ const initialState: AppState = {
 
 // ── API client ─────────────────────────────────────────────────────────
 export async function api(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(path, {
+  const res = await workspaceFetch(path, {
     headers: { "content-type": "application/json" },
     ...init,
   });
@@ -858,7 +896,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // debounced PATCH per bot for text-field edits (name/title/description)
+  // debounced PATCH per bot for text-field edits, including owner instructions
   const patchTimers = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; patch: Record<string, unknown> }>());
 
   const dispatch = useMemo(() => {
@@ -868,7 +906,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      workspaceFetch(`/api/bots/${botId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
@@ -998,6 +1036,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   name: `${source.name} copy`,
                   title: source.title,
                   description: source.description,
+                  systemInstructions: source.systemInstructions ?? "",
                   notifications: source.notifications,
                   modelSelection: source.modelSelection,
                   ...(source.computer ? { computer: source.computer } : {}),
@@ -1176,7 +1215,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // gap before that connection opened.
     const hydrationFallback = setTimeout(hydrate, 1_000);
 
-    const es = new EventSource("/api/events");
+    const es = new AuthenticatedEvents("/api/events");
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
     // transcript on a reconnect it already covered is pure waste.
@@ -1218,7 +1257,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected chat clears its badge immediately
           if (bot.unread && bot.id === stateRef.current.selectedId) {
             bot.unread = false;
-            fetch(`/api/bots/${bot.id}`, {
+            workspaceFetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ unread: false }),
@@ -1232,7 +1271,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected room clears its badge immediately
           if (group.unread && group.id === stateRef.current.selectedId) {
             group.unread = false;
-            fetch(`/api/groups/${group.id}`, {
+            workspaceFetch(`/api/groups/${group.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ unread: false }),
@@ -1299,6 +1338,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "screen":
           rawDispatch({ type: "screenFrame", botId: frame.botId, png: frame.png, mime: frame.mime ?? "image/png" });
           break;
+        case "local-vm-turn":
+          rawDispatch({ type: "localVmTurnState", botId: frame.botId, state: frame.state });
+          break;
+        case "local-vm-preview":
+          rawDispatch({ type: "localVmPreview", botId: frame.botId });
+          break;
         case "computer":
           rawDispatch({ type: "provisioning", botId: frame.botId, on: frame.state === "provisioning" });
           break;
@@ -1312,6 +1357,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: "configStatus",
             config: {
               xai: frame.xai,
+              openrouter: frame.openrouter,
               composio: frame.composio,
               box: frame.box,
               tts: frame.tts,

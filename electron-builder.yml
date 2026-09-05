@@ -5,13 +5,9 @@ appId: com.openmausbot.app
 productName: Agent Harbor
 artifactName: Agent-Harbor-${version}-${arch}.${ext}
 
-# In-app auto-update reads latest-mac.yml + the .zip (macOS) or latest.yml +
-# the NSIS .exe (Windows) from this repository's releases. Public releases
-# need no token on users' machines. Baked into
-# app-update.yml; both metadata files are emitted here even with
-# --publish never, and must be uploaded to the GitHub release alongside the
-# artifacts — a release missing latest.yml leaves every Windows install
-# stranded on its installed version.
+# Retain repository metadata for a future approved release. Package commands use
+# --publish never. Updates stay disabled until signed delivery is verified; see
+# docs/release-readiness.md before distributing any installer.
 publish:
   - provider: github
     owner: LauraFlorey
@@ -23,7 +19,7 @@ directories:
 
 # The app is three self-contained pieces, none needing node_modules at
 # runtime: the Electron main/preload (plain .mjs/.cjs), the built UI
-# (Vite → ui/), and the compiled harness server (tsc → server/), both
+# (Vite → ui/), and the compiled harness server (tsc + bundled Ajv → server/), both
 # shipped in Resources and run on Electron's own Node via
 # ELECTRON_RUN_AS_NODE (the agentcal-hq pattern).
 files:
@@ -100,8 +96,7 @@ nsis:
   oneClick: true
   perMachine: false
   shortcutName: Agent Harbor
-  # Versioned, like the .dmg. A release may also publish the stable filename
-  # Agent-Harbor-setup.exe for a permanent download URL.
+  # Versioned, like the .dmg, so private checkpoints remain identifiable.
   artifactName: Agent-Harbor-${version}-setup.${ext}
 
 linux:

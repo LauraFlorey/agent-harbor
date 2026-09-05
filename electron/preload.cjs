@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("ogb", {
   /** Host platform ("darwin" | "win32" | "linux") — for platform-aware UI. */
   platform: process.platform,
+  getSessionToken: () => ipcRenderer.invoke("workspace:session"),
   getCapabilities: () => ipcRenderer.invoke("desktop:capabilities"),
   /** One frame of this computer's screen as a data: URL when supported. */
   screenFrame: () => ipcRenderer.invoke("screen:frame"),
@@ -43,22 +44,5 @@ contextBridge.exposeInMainWorld("ogb", {
    * false if no terminal could be launched; the clipboard still has it. */
   openInstallTerminal: (command) => ipcRenderer.invoke("engine:open-terminal", command),
 
-  /** In-app auto-update. State object:
-   *  { status: "idle"|"checking"|"available"|"downloading"|"downloaded"|"error",
-   *    version?, percent?, message? }. onState fires immediately with the
-   *    current state, then on every transition. Dormant in dev (no bridge). */
-  updater: {
-    check: () => ipcRenderer.invoke("update:check"),
-    download: () => ipcRenderer.invoke("update:download"),
-    install: () => ipcRenderer.invoke("update:install"),
-    onState: (cb) => {
-      ipcRenderer
-        .invoke("update:get-state")
-        .then((s) => cb(s))
-        .catch(() => {});
-      const handler = (_event, s) => cb(s);
-      ipcRenderer.on("update:state", handler);
-      return () => ipcRenderer.removeListener("update:state", handler);
-    },
-  },
+  // The updater bridge is intentionally unavailable until signed release provenance is verified.
 });

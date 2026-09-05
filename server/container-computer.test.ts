@@ -111,6 +111,37 @@ function readyInspect(overrides: Record<string, unknown> = {}) {
 }
 
 describe("containerComputerStatus", () => {
+  it("propagates cancellation into an in-flight readiness subprocess", async () => {
+    const controller = new AbortController();
+    let probeStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      probeStarted = resolve;
+    });
+    let probeAborted = false;
+    const run: CommandRunner = async (command, args, _timeout, signal) => {
+      if ((command === "/usr/bin/which" || command === "where.exe") && args[0] === "docker") {
+        return { stdout: "docker\n" };
+      }
+      if (command === "/usr/bin/which" || command === "where.exe") throw new Error("missing");
+      if (command === "docker" && args[0] === "info") {
+        probeStarted();
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            probeAborted = true;
+            reject(signal.reason);
+          }, { once: true });
+        });
+      }
+      throw new Error("unexpected readiness command");
+    };
+
+    const status = containerComputerStatus(run, "linux", controller.signal);
+    await started;
+    controller.abort();
+    await status;
+    expect(probeAborted).toBe(true);
+  });
+
   it("prefers a running runtime over an earlier installed but stopped one", async () => {
     const fake = runner({
       "/usr/bin/which docker": "docker\n",
@@ -382,7 +413,7 @@ describe("Cua integration", () => {
     expect(dockerfile).toContain("cua_driver-0.20.0-py3-none-manylinux_2_31_aarch64.whl");
     expect(dockerfile).not.toContain("/tmp/cua-driver.whl");
     expect(dockerfile).toContain("sha256sum -c -");
-    expect(dockerfile).toContain(`install -D -m 0755 \"$driver_bin\" ${CUA_EXECUTABLE}`);
+    expect(dockerfile).toContain(`install -D -m 0755 "$driver_bin" ${CUA_EXECUTABLE}`);
     expect(dockerfile).toContain(`cua-driver ${CUA_DRIVER_VERSION}`);
     expect(dockerfile).toContain(`serve --socket ${CUA_SOCKET} --permission-mode standard`);
     expect(dockerfile).toContain("CUA_DRIVER_RS_TELEMETRY_ENABLED=0");
@@ -390,7 +421,7 @@ describe("Cua integration", () => {
     expect(dockerfile).toContain("migrate_profile google-chrome");
     expect(dockerfile).toContain("migrate_profile chromium");
     expect(dockerfile).toContain("SingletonLock");
-    expect(dockerfile).toContain(`${IMAGE_LAYER_LABEL}=\"${IMAGE_LAYER_VERSION}\"`);
+    expect(dockerfile).toContain(`${IMAGE_LAYER_LABEL}="${IMAGE_LAYER_VERSION}"`);
     expect(dockerfile).toContain("did not become ready within 45 seconds");
     expect(dockerfile).not.toContain("while ! DISPLAY=:1 xset q");
   });

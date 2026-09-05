@@ -1,3 +1,4 @@
+import { createOwnerFetch } from "./testing/owner-fetch.ts";
 // Agent-to-agent comms, end to end: boots the real harness server with the
 // grokAgent driver pointed at the fake ACP CLI in ask-peer mode, then has
 // bot A's "agent" reach bot B through the injected agents proxy (list_bots →
@@ -82,8 +83,10 @@ describe("comms e2e (fake ACP fleet)", () => {
   let home: string;
   let stderr = "";
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-    const res = await fetch(`${BASE}${path}`, {
+  const ownerFetch = createOwnerFetch(BASE, () => join(home, ".openmausbot"));
+
+const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+    const res = await ownerFetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -135,6 +138,7 @@ describe("comms e2e (fake ACP fleet)", () => {
         USERPROFILE: home,
         OMB_SECRET_STORE: "file",
         OMB_PORT: String(PORT),
+        OMB_SKIP_LOCAL_VM_STARTUP_PROBE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -143,7 +147,7 @@ describe("comms e2e (fake ACP fleet)", () => {
     const deadline = Date.now() + 20_000;
     for (;;) {
       try {
-        const res = await fetch(`${BASE}/api/health`);
+        const res = await ownerFetch(`${BASE}/api/health`);
         if (res.ok) break;
       } catch {
         /* not up yet */

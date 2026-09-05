@@ -7,11 +7,13 @@
 // signing). In dev it's a no-op so the browser/dev shell is unaffected.
 // electron-updater is vendored (electron/vendor/electron-updater.cjs) because
 // the packaged app ships no node_modules.
-import { app, ipcMain } from "electron";
+import { app } from "electron";
 import { createRequire } from "node:module";
 import { createUpdaterCoordinator, installDownloadedUpdate } from "./updater-coordinator.mjs";
 
 const require = createRequire(import.meta.url);
+// Enable only as part of a separately verified signed release pipeline.
+const SIGNED_RELEASE_UPDATES_ENABLED = false;
 
 let autoUpdater = null;
 let win = null;
@@ -28,11 +30,11 @@ function setState(patch) {
   }
 }
 
-export function registerUpdaterIpc() {
-  ipcMain.handle("update:get-state", () => state);
-  ipcMain.handle("update:check", () => updaterCoordinator?.check(true));
-  ipcMain.handle("update:download", () => updaterCoordinator?.download());
-  ipcMain.handle("update:install", () => {
+export function registerUpdaterIpc(handleIpc) {
+  handleIpc("update:get-state", () => state);
+  handleIpc("update:check", () => updaterCoordinator?.check(true));
+  handleIpc("update:download", () => updaterCoordinator?.download());
+  handleIpc("update:install", () => {
     // isSilent, isForceRunAfter — relaunch straight into the new version
     try {
       installDownloadedUpdate(state.status, autoUpdater);
@@ -45,7 +47,7 @@ export function registerUpdaterIpc() {
 export function startUpdater(mainWindow) {
   win = mainWindow;
   // dev / unsigned builds can't auto-update — leave the banner dormant
-  if (!app.isPackaged) {
+  if (!app.isPackaged || !app.isReady() || !SIGNED_RELEASE_UPDATES_ENABLED) {
     updaterCoordinator = null;
     setState({ status: "idle" });
     return;

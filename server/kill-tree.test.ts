@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
-import { drainCliTrees, killCliTree } from "./procs.ts";
+import { drainCliTrees, killCliTree, killCliTreeNow } from "./procs.ts";
 
 const IDLE = "setInterval(() => {}, 1000)";
 
@@ -107,4 +107,43 @@ describe("killCliTree", () => {
       }
     }
   }, 20_000);
+
+  it("synchronously forces a stubborn tree for the process-exit path", async () => {
+    const stubborn = `process.on("SIGTERM", () => {}); ${IDLE}`;
+    const parent = spawn(
+      process.execPath,
+      [
+        "-e",
+        `process.on("SIGTERM", () => {}); ` +
+          `const c = require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(stubborn)}], { stdio: "ignore" });` +
+          `console.log(c.pid); ${IDLE}`,
+      ],
+      { stdio: ["ignore", "pipe", "ignore"], detached: true },
+    );
+    let grandchild = 0;
+    try {
+      grandchild = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("helper did not report its pid")), 5_000);
+        parent.stdout!.once("data", (chunk) => {
+          clearTimeout(timer);
+          resolve(Number(String(chunk).trim()));
+        });
+      });
+      killCliTreeNow(parent);
+      const deadline = Date.now() + 5_000;
+      while ((alive(grandchild) || alive(parent.pid!)) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(alive(grandchild)).toBe(false);
+      expect(alive(parent.pid!)).toBe(false);
+    } finally {
+      killCliTreeNow(parent);
+      for (const pid of [grandchild, parent.pid ?? 0]) {
+        if (!pid || !alive(pid)) continue;
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+    }
+  }, 10_000);
 });

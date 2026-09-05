@@ -18,3 +18,8 @@ release
 *.p12
 *.pfx
 *.key
+
+dist-server/
+# Local reconciliation backups and editor-specific skills
+*.bak
+.agents/

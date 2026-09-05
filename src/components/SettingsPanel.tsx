@@ -41,8 +41,10 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "name"
         | "title"
         | "description"
+        | "systemInstructions"
         | "notifications"
         | "computer"
+        | "openrouterLocalVm"
         | "hostAccess"
         | "color"
         | "mascotExpression"
@@ -58,6 +60,14 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const activeState = stateForBot(bot);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
+  const selectedModel = engine?.models.options.find((option) => option.id === bot.modelSelection.model);
+  const isOpenRouter = engine?.driverKind === "openrouter";
+  const openRouterVmEligible = Boolean(
+    isOpenRouter &&
+    state.config?.openrouter?.localVmEnabled &&
+    bot.openrouterLocalVm &&
+    selectedModel?.localVm?.status === "verified",
+  );
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
   const currentChief = state.bots.find((candidate) => candidate.chiefOfStaff);
 
@@ -185,6 +195,18 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               value={bot.description}
               onChange={(e) => patch({ description: e.target.value })}
             />
+          </Field>
+          <Field label="System instructions">
+            <textarea
+              className={cn(inputCls, "min-h-[160px] resize-y")}
+              maxLength={20_000}
+              placeholder="Instructions this agent should follow on every task"
+              value={bot.systemInstructions ?? ""}
+              onChange={(e) => patch({ systemInstructions: e.target.value })}
+            />
+            <div className="mt-1.5 text-[11.5px] leading-relaxed text-ink-secondary">
+              Applied as owner instructions for this agent in direct conversations and rooms. Do not put passwords or API keys here.
+            </div>
           </Field>
 
           <div className={cn(
@@ -326,6 +348,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               ).map(([mode, label], i) => (
                 <button
                   key={mode}
+                  disabled={mode === "vm" && isOpenRouter && !openRouterVmEligible}
                   onClick={() => {
                     if (
                       mode === "local" &&
@@ -339,6 +362,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                   className={cn(
                     "flex-1 py-1.5 text-[13px] capitalize",
                     i > 0 && "border-l border-hairline/40",
+                    mode === "vm" && isOpenRouter && !openRouterVmEligible && "cursor-not-allowed opacity-40",
                     (bot.computer ?? "off") === mode
                       ? "bg-raised text-ink"
                       : "text-ink-secondary hover:bg-raised/60 hover:text-ink",
@@ -348,6 +372,41 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 </button>
               ))}
             </div>
+            {isOpenRouter && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-inset px-3 py-2.5">
+                <div>
+                  <div className="text-[13px] font-medium text-ink">OpenRouter Local VM</div>
+                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">
+                    {selectedModel?.localVm?.status === "verified"
+                      ? "Verified Terra only; routine actions use one task approval, while consequential actions still ask separately."
+                      : selectedModel?.localVm?.reason ?? "This model remains available for text chat only."}
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={Boolean(bot.openrouterLocalVm)}
+                  aria-label="OpenRouter Local VM for this agent"
+                  onClick={() => {
+                    if (
+                      !bot.openrouterLocalVm &&
+                      !window.confirm(
+                        `Allow ${bot.name} to request tools in the isolated Local VM when verified Terra is selected? Routine actions use one task approval; consequential actions still ask separately.`,
+                      )
+                    ) return;
+                    patch({ openrouterLocalVm: !bot.openrouterLocalVm });
+                  }}
+                  className={cn(
+                    "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
+                    bot.openrouterLocalVm ? "bg-accent" : "bg-raised",
+                  )}
+                >
+                  <span className={cn(
+                    "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                    bot.openrouterLocalVm ? "left-[21px]" : "left-[3px]",
+                  )} />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
@@ -391,8 +450,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               <div className="text-[15px] font-medium text-ink">Auto mode</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
                 {bot.autoApprove
-                  ? "Keeps going on its own — you'll still be asked about anything destructive, and about questions it asks you."
-                  : "Approve each action yourself. Turn on to let this bot keep working without stopping to ask."}
+                  ? "Keeps routine actions moving — you'll still be asked about consequential or destructive actions and questions."
+                  : "Ask once for a Local VM task and pause separately for consequential actions. Turn on to pre-authorize routine actions."}
               </div>
             </div>
             <button

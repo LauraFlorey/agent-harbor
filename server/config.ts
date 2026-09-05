@@ -11,7 +11,12 @@ import { createPlatformSecretStore, type SecretId, type SecretStore } from "./se
 export interface AppConfig {
   xai?: { key?: string; url?: string };
   /** OpenRouter key; persisted write-only and exposed only to its driver. */
-  openrouter?: { apiKey?: string; url?: string };
+  openrouter?: {
+    apiKey?: string;
+    url?: string;
+    /** Experimental, owner-controlled, default-off kill switch. */
+    localVmEnabled?: boolean;
+  };
   /** key = ck_… Connect consumer key (connections + agent tools);
    * apiKey = ak_… project API key — optional, unlocks the full toolkit
    * catalog with official logos in the plugins marketplace. */
@@ -32,6 +37,7 @@ export interface AppConfig {
 export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
 const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
+export const CONSEQUENTIAL_LOG_FILE = join(DATA_DIR, "consequential-log.ndjson");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 const PRIVATE_DIR_MODE = 0o700;

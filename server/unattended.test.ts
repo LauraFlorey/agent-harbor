@@ -1,3 +1,4 @@
+import { createOwnerFetch } from "./testing/owner-fetch.ts";
 // Auto mode must not follow a turn that nobody started.
 //
 // The unit tests in auto-approve.test.ts pin the RULE; these pin the
@@ -27,8 +28,10 @@ let child: ChildProcess;
 let home: string;
 let stderr = "";
 
+const ownerFetch = createOwnerFetch(BASE, () => join(home, ".openmausbot"));
+
 const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await ownerFetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -104,6 +107,7 @@ posixOnly("unattended turns keep asking", () => {
         HOME: home,
         USERPROFILE: home,
         OMB_PORT: String(PORT),
+        OMB_SKIP_LOCAL_VM_STARTUP_PROBE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -111,7 +115,7 @@ posixOnly("unattended turns keep asking", () => {
     const deadline = Date.now() + 20_000;
     for (;;) {
       try {
-        if ((await fetch(`${BASE}/api/health`)).ok) break;
+        if ((await ownerFetch(`${BASE}/api/health`)).ok) break;
       } catch {
         /* not up yet */
       }
@@ -153,7 +157,7 @@ posixOnly("unattended turns keep asking", () => {
       });
       expect(hook.status).toBe(201);
 
-      const delivered = await fetch(hook.body.credential.url, {
+      const delivered = await ownerFetch(hook.body.credential.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: "failed" }),
@@ -199,7 +203,7 @@ posixOnly("unattended turns keep asking", () => {
       });
       expect(hook.status).toBe(201);
 
-      const delivered = await fetch(hook.body.credential.url, {
+      const delivered = await ownerFetch(hook.body.credential.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ event: "handoff" }),
@@ -256,7 +260,7 @@ posixOnly("unattended turns keep asking", () => {
         runOn: "maus",
       });
       expect(hook.status).toBe(201);
-      const delivered = await fetch(hook.body.credential.url, {
+      const delivered = await ownerFetch(hook.body.credential.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ event: "ask" }),
