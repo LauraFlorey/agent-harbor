@@ -2,13 +2,30 @@
 
 A local workspace for running a team of AI agents, with conversations, tasks, and explicit controls over each agent's computer access.
 
-Agent Harbor is a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot), maintained by Laura Florey. The source is being prepared for public release. It is experimental software with powerful local capabilities; installer signing and cross-platform release acceptance are still pending. Agent Harbor has no cryptocurrency or token affiliation.
+Agent Harbor is a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot), maintained by Laura Florey. It is experimental software being prepared for a friends-and-family beta and public source release. Agent Harbor has no cryptocurrency or token affiliation.
 
 ![Agent Harbor workspace](docs/screenshots/hero.png)
 
+## Beta status and platform limits
+
+**Apple and Microsoft signing enrollment is deferred. No publicly trusted, signed installers are currently offered.** Mac test packages use an ad-hoc development signature and are not Apple-notarized; Windows test installers are unsigned. Automatic updates are disabled. Private package builds have passed build/content checks, but installation on separate tester machines is still pending.
+
+You do **not** need a paid developer or code-signing account to run Agent Harbor from source. The initial testing path is a guided source setup on Apple Silicon Macs and Windows x64 PCs. While the repository is private, testers need repository access; publication will make the source available more broadly. See the [beta testing guide](docs/beta-testing.md) for setup, test steps, and package limitations.
+
+| Capability | Apple Silicon Mac | Windows x64 |
+|---|---|---|
+| Bots, text chat, model selection, tasks, and rooms | Initial beta scope | Initial beta scope |
+| Microphone dictation | Implemented; live voice acceptance pending | Not supported |
+| Direct control and preview of this computer | Requires explicit permissions; experimental | Not supported |
+| Local VM, cloud computers, connected apps, and scheduling | Optional; setup and feature-specific testing required | Optional; setup and feature-specific testing required |
+
+Intel Macs and Windows on ARM are not validated beta targets. Each tester supplies their own provider account or API key; provider usage may cost money. Start with computer access and host-folder access off. Beta status does not mean every optional feature has been verified end to end.
+
+Unsigned installers may produce an unidentified-publisher warning or be blocked. A README notice does not remove these restrictions. Use the source setup or wait for a supported release if device policy blocks a package; do not disable system-wide protections to participate. See [Apple's app-opening guidance](https://support.apple.com/102445) and [Microsoft's Smart App Control overview](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview).
+
 ## Run from source
 
-Use Node.js 24 or later and pnpm 10.33.0. Install the provider CLIs you want to use, such as Claude or Codex, and sign in through those tools.
+Use Node.js 24 or later and pnpm 10.33.0. Download or clone this repository and open a terminal in its folder before running the commands below. You can use your own OpenRouter API key for text chat without installing a provider CLI. For Claude or Codex, install the corresponding provider CLI and sign in through that tool.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -61,7 +78,7 @@ The server build cleans its output and bundles the external schema validator. Do
 
 ## Distribution and project documents
 
-Automatic installer updates are disabled until signed release provenance is established. Local packaging commands use `--publish never`. Do not distribute installers as a stable release until the [release checklist](docs/release-readiness.md) is complete and the exact build passes clean-machine checks on its target OS.
+Automatic installer updates are disabled until signed release provenance is established. Local packaging commands use `--publish never`. Source testing can proceed while signing is deferred. Any later installer distribution needs an explicitly approved version, signing status, known limitations, and clean-machine results; do not present private unsigned checkpoints as a stable release. See the [release checklist](docs/release-readiness.md).
 
 See [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [architecture](ARCHITECTURE.md), and [roadmap](ROADMAP.md). Historical screenshots under `docs/screenshots` show earlier upstream interfaces and demonstration conversations; the hero above is the current clean workspace reference.
 
