@@ -424,6 +424,7 @@ Inspired by LibreChat where the *job* matches. Implement in Harbor’s architect
 3. `SECURITY.md` + `docs/security-hardening-results.md` — current threat model.
 4. `ROADMAP.md` — capability calibration vs remaining sprints (instruction stack, assets, recovery).
 5. This file — what to borrow from a mature chat platform without becoming one.
+6. [OpenMausBot recent upstream](upstream-openmausbot-recent.md) — what the original fork shipped after Harbor’s 2026-08-16 sync, especially computers and stalls.
 
 ---
 

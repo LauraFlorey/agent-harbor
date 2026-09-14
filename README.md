@@ -80,7 +80,7 @@ The server build cleans its output and bundles the external schema validator. Do
 
 Automatic installer updates are disabled until signed release provenance is established. Local packaging commands use `--publish never`. Source testing can proceed while signing is deferred. Any later installer distribution needs an explicitly approved version, signing status, known limitations, and clean-machine results; do not present private unsigned checkpoints as a stable release. See the [release checklist](docs/release-readiness.md).
 
-See [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [architecture](ARCHITECTURE.md), and [roadmap](ROADMAP.md). For a scoped comparison with LibreChat (a mature self-hosted chat UI with a different product job), see [Agent Harbor compared with LibreChat](docs/comparison-librechat.md). Historical screenshots under `docs/screenshots` show earlier upstream interfaces and demonstration conversations; the hero above is the current clean workspace reference.
+See [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [architecture](ARCHITECTURE.md), and [roadmap](ROADMAP.md). For a scoped comparison with LibreChat (a mature self-hosted chat UI with a different product job), see [Agent Harbor compared with LibreChat](docs/comparison-librechat.md). For what [OpenMausBot](https://github.com/milind-soni/OpenMausBot) shipped after Harbor’s last upstream sync, see [OpenMausBot recent upstream](docs/upstream-openmausbot-recent.md). Historical screenshots under `docs/screenshots` show earlier upstream interfaces and demonstration conversations; the hero above is the current clean workspace reference.
 
 ## License
 
