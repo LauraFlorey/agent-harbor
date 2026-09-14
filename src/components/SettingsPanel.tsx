@@ -222,7 +222,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-medium text-ink">Chief of Staff</div>
-                <div className="text-[11.5px] text-ink-secondary">One per workspace</div>
+                <div className="text-[11.5px] text-ink-secondary">Local workspace coordinator</div>
               </div>
               <button
                 role="switch"
@@ -248,7 +248,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               {bot.chiefOfStaff && !canCoordinate
                 ? "This bot still holds the role, but its current engine cannot contact teammates. Choose a Claude or ACP engine to restore coordination."
                 : bot.chiefOfStaff
-                  ? "This is your primary contact. It can coordinate the other bots and combine their work into one answer."
+                  ? "This Harbor bot coordinates the other bots in this workspace and can combine their work into one answer."
                 : !canCoordinate
                   ? "Choose a Claude or ACP engine to let this bot coordinate teammates."
                   : currentChief

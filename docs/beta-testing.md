@@ -4,10 +4,11 @@ The first tester group uses Apple Silicon Macs and Windows x64 PCs. Signing enro
 
 ## Source setup
 
-1. Get repository access from the owner while it is private. Use the commit or tag supplied with the test invitation so bug reports identify the code tested.
-2. Install Node.js 24 or later, pnpm 10.33.0, and Git if you plan to clone the repository. You can also download the source ZIP and extract it.
-3. Open Terminal on Mac or a terminal on Windows in the extracted/cloned project folder.
-4. Install the dependencies and start the app:
+The repository is public: [github.com/LauraFlorey/agent-harbor](https://github.com/LauraFlorey/agent-harbor). Use a specific commit or tag in bug reports so the code tested is identifiable.
+
+1. Install Node.js 24 or later, pnpm 10.33.0, and Git. You can also download the source ZIP from GitHub and extract it.
+2. Clone or extract the project, then open Terminal on Mac or a terminal on Windows in that folder.
+3. Install the dependencies and start the app:
 
    ```sh
    pnpm install --frozen-lockfile
@@ -21,8 +22,8 @@ The first tester group uses Apple Silicon Macs and Windows x64 PCs. Signing enro
    pnpm.cmd dev:all
    ```
 
-5. Connect one provider you own. OpenRouter text chat uses an API key configured in App Settings and does not need a provider CLI. Claude and Codex require their own installed, authenticated CLIs. Account access, model availability, and usage charges depend on the provider.
-6. Create a test bot. Leave computer access, host-folder access, and automatic approval off for the first session.
+4. Connect one provider you own. OpenRouter text chat uses an API key configured in App Settings and does not need a provider CLI. Claude and Codex require their own installed, authenticated CLIs. Account access, model availability, and usage charges depend on the provider.
+5. Create a test bot. Leave computer access, host-folder access, and automatic approval off for the first session.
 
 Keep the launcher terminal open while using the app. Press Control-C there to stop the development stack. Start it again with `pnpm dev:all` (or `pnpm.cmd dev:all`). Keep the app's server ports local; this beta is not a shared hosted service. Do not share session access codes or provider keys.
 

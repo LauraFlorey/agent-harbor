@@ -1,7 +1,14 @@
 # Sprint 0 Baseline — Agent Harbor
 
-Status: baseline map as of 30 August 2026. Branch `codex/personal-action-capabilities`, checkpoint `4403d90`.
-Purpose: freeze a trustworthy picture of what exists before Sprint 1 reshapes it. This reconciles the roadmap and `VISION.md` / `ARCHITECTURE.md` against the actual code. Where the code and the docs disagree, the code wins and the gap is named.
+Status: **historical baseline** frozen 30 August 2026 on branch
+`codex/personal-action-capabilities` at `4403d90`. That history is now on
+public `main` (version `0.1.21`). For current product status use
+[ROADMAP.md](../ROADMAP.md), [ARCHITECTURE.md](../ARCHITECTURE.md), and
+[current handoff](plans/current-handoff.md). Do not treat the branch name or
+file counts below as live.
+
+Purpose of this file: freeze a trustworthy picture of what existed before later
+sprints. Where this snapshot and current docs disagree, current docs win.
 
 ## 1. What actually exists today
 
@@ -88,7 +95,7 @@ Confirms the six gaps already listed in `ARCHITECTURE.md`, and adds specifics:
 - **`server/index.ts` is a ~2,900-line monolith** — the single biggest structural residue; per-resource command modules would make Sprint 1 safer.
 - **The 8 primitives are not yet one formal typed domain** (`contracts.ts` is runtime types, not the stable domain).
 - **No replayable run ledger** (events + transcripts exist; immutable versioned records + redacted summaries do not).
-- **Life OS and Jinx Memory integrations are not implemented here** (correct — they are separate apps).
+- **Life OS and Discord/Jinx integrations are not implemented here** (correct — and not planned as Harbor APIs).
 - **The full Local VM browser-action + recovery sequence is not live-accepted**; the roadmap's lease-ended error is unresolved against the current implementation.
 - **Backup / restore / rollback / owner-ready recovery are not complete.**
 

@@ -1,12 +1,12 @@
-> Beta testing: use the authenticated source workflow in [README.md](../README.md) and the [beta testing guide](beta-testing.md). Signing enrollment is deferred and automatic installer updates are disabled. Public source publication and installer distribution are separate decisions; see [release-readiness.md](release-readiness.md).
+> Beta testing: use the authenticated source workflow in [README.md](../README.md) and the [beta testing guide](beta-testing.md). Signing enrollment is deferred and automatic installer updates are disabled. The source repository is public; installer distribution is a separate decision. See [release-readiness.md](release-readiness.md).
 
 # Installation, packaging, and recovery guide
 
-Agent Harbor is being prepared for a friends-and-family beta on Apple Silicon
-Macs and Windows x64 PCs, followed by public source availability. The repository
-remains private until publication is approved. Guided source testing can
-proceed without paid signing accounts. Source builds, branches, private test
-packages, installed checkpoints, backups, and recovery tests remain separate states.
+The GitHub repository is public. Friends-and-family and other testers run from
+source on Apple Silicon Macs and Windows x64 PCs. Guided source testing does
+not need paid signing accounts. Source on `main`, pull requests, private test
+packages, installed checkpoints, backups, and recovery tests remain separate
+states. A public clone is not a signed GitHub Release.
 
 ## State definitions
 
@@ -49,7 +49,7 @@ the exact owned process tree before restarting anything.
 
 The Local VM is a separate, explicitly prepared Docker-backed destination.
 Starting the development runtime must not start, stop, recreate, or repair
-Docker. Jinx is a separate application and is never part of an Agent Harbor
+Docker. Jinx works with Laura on Discord and is never part of an Agent Harbor
 deployment or cleanup operation.
 
 ## Required verification before personal packaging

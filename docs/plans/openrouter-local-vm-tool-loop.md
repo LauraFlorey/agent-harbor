@@ -13,21 +13,14 @@ can merely describe intended clicks does not meet the outcome.
 
 ## Current checkpoint
 
-Stories 1–6 and the first Local VM acceptance repair are implemented in the
-history leading to local personal-use checkpoint `29a679a` on branch
-`codex/personal-action-capabilities`. That branch also includes bounded
-OpenRouter web research, one routine-action approval per attended task, doubled
-operational time limits, per-agent system instructions, and the model-picker
-mouse-scroll repair. The private branch is pushed at documentation checkpoint
-`4403d90`; it is not merged into private `main`, installed as a promoted
-personal checkpoint, or recovery-tested. No public release is planned.
-
-Automated verification and the core development runtime are green. An earlier
-controlled run at `cf11c7c` proved one complete approval-gated Local VM tool
-call, but the full controlled acceptance sequence below remains incomplete. A
-later turn reported **“Local VM lease ended before the turn completed.”** That
-failure remains an unresolved acceptance risk and must not be hidden by the
-new time limits.
+Stories 1–6, the first Local VM acceptance repair, lease heartbeat, bounded
+OpenRouter web research, routine-action approval, and per-agent system
+instructions are **on public `main`** (version `0.1.21`). They are not a live
+acceptance. Automated verification is green on CI. An earlier controlled run at
+`cf11c7c` proved one approval-gated Local VM tool call; the full sequence below
+remains incomplete. A later turn reported **“Local VM lease ended before the
+turn completed.”** The turn now renews its lease on progress in code; re-prove
+that on a real VM before calling the sprint done.
 
 ## Scope
 
@@ -45,7 +38,7 @@ new time limits.
 
 ### Not in scope
 
-- Jinx integration or changes of any kind.
+- Jinx, Discord, or Life OS integration or changes of any kind.
 - Silent access to this Mac, a cloud computer, connected apps, files, or peer
   agents.
 - Automatic Facebook sign-in, credential entry, CAPTCHA handling, or attempts
@@ -276,7 +269,8 @@ conflating them with Local VM authority:
   the complete acceptance record is reviewed.
 - Update the personal status only after every required acceptance item is
   observed, not merely configured or tested with fixtures.
-- Merge to private `main`, package when useful, install, and promote as distinct
-  owner-approved steps after an explicit review of branch scope, rollback,
+- Merge to `main` (already done for the implementation), package when useful, install, and promote as distinct
+  owner-approved steps after an explicit review of rollback,
   backup, recovery, and the acceptance record. See
-  [Private installation, packaging, and recovery](../deployment.md).
+  [Installation, packaging, and recovery](../deployment.md).
+  Do not publish unsigned installers as a GitHub Release.

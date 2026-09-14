@@ -10,7 +10,8 @@ The short version:
 - Assume good faith, especially with first-time contributors, and remember maintainers are people
   with finite time.
 
-Report unacceptable behavior privately to the repository owner through an agreed private channel.
-Reports are handled confidentially. A working contact channel is a publication gate in
-[the release checklist](docs/release-readiness.md). Maintainers may edit, remove, or reject contributions and comments that violate this
+Report unacceptable behavior privately to the repository owner. Use GitHub
+private vulnerability reporting or another private channel — not a public issue —
+when the report is also a security problem ([SECURITY.md](SECURITY.md)).
+Maintainers may edit, remove, or reject contributions and comments that violate this
 code, and may ban repeat offenders.

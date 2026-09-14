@@ -1,40 +1,44 @@
-> Public-source preparation: the owner has approved preparing Agent Harbor for a public repository. Personal data and integrations remain private. Earlier private-product language below records the original design direction; release gates are in [docs/release-readiness.md](docs/release-readiness.md).
-
 # Agent Harbor architecture
 
-Status: current architecture map and target boundaries as of August 30, 2026.
+Status: current architecture map for public source version **0.1.21**.
+Product boundaries (Discord/Jinx, no signed installers) match
+[VISION.md](VISION.md) and [ROADMAP.md](ROADMAP.md).
 
-This document separates what exists from what the roadmap proposes. The current
-handoff in `docs/plans/current-handoff.md` remains the source for exact branch,
-runtime, and live-acceptance status.
+This document separates what exists on `main` from what the roadmap proposes.
+Exact live-acceptance and PR state: [current handoff](docs/plans/current-handoff.md).
 
 ## System boundary
 
-Agent Harbor owns agent execution and the controls around it. Life OS owns
-attention and commitments. Jinx Memory owns durable knowledge and retrieval.
+Agent Harbor owns agent execution and the controls around it. **Jinx lives on
+Discord**, outside this repository. Life OS, if it happens, would be a
+separate companion app — not a Harbor subsystem and not a Jinx Memory service
+inside this codebase.
 
 ```mermaid
 flowchart LR
-    L[Life OS\ncommitments and attention]
-    J[Jinx Memory\ndurable context]
+    C[Chief of Staff\nlocal coordinator bot]
     H[Agent Harbor\nagents, policy, execution, evidence]
     A[Provider and tool adapters]
     E[Local, VM, or cloud environments]
 
-    L <-->|narrow APIs and events| H
-    J <-->|least-data retrieval and references| H
+    C --> H
     H --> A
     A --> E
 ```
 
-The three applications have independent storage and must tolerate either
-integration being absent. Retrieved memory and external content are evidence,
-not execution authority.
+Harbor must remain useful with Discord, Jinx, and Life OS all absent. There is
+no Jinx Memory retrieval path, Discord gateway, or reserved bot named Jinx.
+Pasted Discord content and other external material are evidence, not execution
+authority. The in-app Chief of Staff (`server/chief-of-staff.ts`) is a generic
+workspace coordinator. It is not Jinx. Discord is out of band and not a Harbor
+adapter.
 
 ## Current implementation
 
 The current application is an Electron desktop shell around a React interface
-and a local harness server:
+and a local harness server. Default loopback ports: API `8799`, UI `5199`,
+webhook ingress `8800`. Auth is a per-server bearer; the desktop injects it over
+IPC, a browser tab uses `pnpm dev:access`.
 
 | Layer | Current location | Responsibility |
 |---|---|---|
@@ -44,6 +48,10 @@ and a local harness server:
 | Harness | `server/harness/` | Provider registry, live instances, turn routing, and the fan-in event bus. |
 | Provider adapters | `server/drivers/` | Normalize local CLI, ACP, OpenRouter, and computer-provider behavior behind shared contracts. |
 | Persistent compatibility state | `~/.openmausbot/` | Current local bot, transcript, event, configuration, and fallback-secret paths. Renaming requires a tested migration. |
+
+Computer destinations (off, isolated Local VM, this computer, cloud Box) are
+per-agent and fail closed as `off`. The in-app Chief of Staff
+(`server/chief-of-staff.ts`) is a generic workspace coordinator.
 
 The canonical runtime types live in `server/contracts.ts`. Unknown providers
 degrade to an unavailable state instead of crashing the fleet. The interface
@@ -83,8 +91,8 @@ today, but the complete typed domain and replayable run ledger are roadmap work.
 The intended instruction order is:
 
 1. Agent Harbor system and security rules
-2. `AGENTS.md`
-3. `USER.md` or `LAURA.md`
+2. `AGENTS.md` (when present)
+3. `USER.md` or owner profile instructions (when present)
 4. agent instructions
 5. project instructions
 6. room instructions
@@ -110,9 +118,10 @@ Material ambiguity fails closed or returns to Laura for clarification.
 - Prompts, model output, MCP servers, copied approval data, and UI automation are
   never approval authorities.
 
-The current branch implements the attended-task routine grant and separate
-consequential pauses for the experimental OpenRouter Local VM path. Broader
-policy compilation and trusted high-risk challenges remain future work.
+`main` implements the attended-task routine grant, exclusive Local VM lease
+(including renewal on turn progress), and separate consequential pauses for the
+experimental OpenRouter Local VM path. Broader policy compilation, trusted
+high-risk challenges, and **live Local VM acceptance** remain open.
 
 ## Security boundaries
 
@@ -136,13 +145,15 @@ recovery-tested personal capability.
 
 Protected personal state includes credentials, connected accounts, client
 project context, site inventories, tuned specialists, health records, private
-prompts, Jinx personality and memory, Obsidian/Open Brain material, and Life OS
-data. These values do not belong in the public repository, model logs, crash
-reports, screenshots, or broadly shared provider context.
+prompts, Obsidian/Open Brain material, and any Life OS data that later exists.
+These values do not belong in the public repository, model logs, crash
+reports, screenshots, or broadly shared provider context. Discord and Jinx are
+out of band; if Laura pastes that material into Harbor, it is still private
+transcript evidence, not a memory product.
 
-Agent Harbor stores only what it owns or what a bounded run requires. Future
-Life OS and Jinx integrations should exchange the least data possible, prefer
-references over copies, and use revocable service identities.
+Agent Harbor stores only what it owns or what a bounded run requires. Do not
+add Discord, Jinx Memory, or Life OS APIs to this repo to “complete” Harbor.
+See [`docs/plans/jinx-out-of-harbor.md`](docs/plans/jinx-out-of-harbor.md).
 
 ## Adapter rule
 
@@ -156,6 +167,9 @@ must not silently change permission or data-ownership semantics.
 - The repository does not yet have the complete versioned instruction stack.
 - The eight primitives are not yet formalized as one stable domain model.
 - Run evidence is not yet a complete replayable ledger.
-- Life OS and Jinx Memory integrations are not implemented here.
+- Discord, Jinx, and Life OS integrations are intentionally not implemented
+  here. Keep `src/`, `server/`, and `electron/` free of Jinx identifiers.
 - The full Local VM browser-action and recovery sequence is not live-accepted.
 - Backup, restoration, rollback, and owner-ready recovery are not complete.
+- Signed installers, notarization, and automatic updates are not established.
+  Source on GitHub is the supported distribution path.

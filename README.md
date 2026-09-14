@@ -1,65 +1,86 @@
 # Agent Harbor
 
-A local workspace for running a team of AI agents, with conversations, tasks, and explicit controls over each agent's computer access.
+[![CI](https://github.com/LauraFlorey/agent-harbor/actions/workflows/ci.yml/badge.svg)](https://github.com/LauraFlorey/agent-harbor/actions/workflows/ci.yml)
 
-Agent Harbor is a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot), maintained by Laura Florey. It is experimental software being prepared for a friends-and-family beta and public source release. Agent Harbor has no cryptocurrency or token affiliation.
+A local-first **control plane** for a personal team of AI agents: conversations, tasks, rooms, and explicit policy over each agent's computer access.
+
+This project **started as a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot)**. It is maintained independently by Laura Florey. OpenMausBot remains a separate product; Agent Harbor is not a drop-in replacement, a Grok Bot clone, or a hosted chat platform.
+
+Agent Harbor has no cryptocurrency or token affiliation.
 
 ![Agent Harbor workspace](docs/screenshots/hero.png)
 
-## Beta status and platform limits
+## Install (run from source)
 
-**Apple and Microsoft signing enrollment is deferred. No publicly trusted, signed installers are currently offered.** Mac test packages use an ad-hoc development signature and are not Apple-notarized; Windows test installers are unsigned. Automatic updates are disabled. Private package builds have passed build/content checks, but installation on separate tester machines is still pending.
-
-You do **not** need a paid developer or code-signing account to run Agent Harbor from source. The initial testing path is a guided source setup on Apple Silicon Macs and Windows x64 PCs. While the repository is private, testers need repository access; publication will make the source available more broadly. See the [beta testing guide](docs/beta-testing.md) for setup, test steps, and package limitations.
-
-| Capability | Apple Silicon Mac | Windows x64 |
-|---|---|---|
-| Bots, text chat, model selection, tasks, and rooms | Initial beta scope | Initial beta scope |
-| Microphone dictation | Implemented; live voice acceptance pending | Not supported |
-| Direct control and preview of this computer | Requires explicit permissions; experimental | Not supported |
-| Local VM, cloud computers, connected apps, and scheduling | Optional; setup and feature-specific testing required | Optional; setup and feature-specific testing required |
-
-Intel Macs and Windows on ARM are not validated beta targets. Each tester supplies their own provider account or API key; provider usage may cost money. Start with computer access and host-folder access off. Beta status does not mean every optional feature has been verified end to end.
-
-Unsigned installers may produce an unidentified-publisher warning or be blocked. A README notice does not remove these restrictions. Use the source setup or wait for a supported release if device policy blocks a package; do not disable system-wide protections to participate. See [Apple's app-opening guidance](https://support.apple.com/102445) and [Microsoft's Smart App Control overview](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview).
-
-## Run from source
-
-Use Node.js 24 or later and pnpm 10.33.0. Download or clone this repository and open a terminal in its folder before running the commands below. You can use your own OpenRouter API key for text chat without installing a provider CLI. For Claude or Codex, install the corresponding provider CLI and sign in through that tool.
+This is the supported way to try Agent Harbor. There are **no signed installers** yet. You need [Node.js 24+](https://nodejs.org/) and [pnpm 10.33.0](https://pnpm.io/installation), plus Git.
 
 ```sh
+git clone https://github.com/LauraFlorey/agent-harbor.git
+cd agent-harbor
 pnpm install --frozen-lockfile
 pnpm dev:all
 ```
 
-The launcher starts the server, development interface, and Electron desktop app. Closing the app or pressing Control-C stops that stack. The default ports are 8799 for the API, 5199 for the interface, and 8800 for webhook ingress. Keep them on loopback.
+That starts the harness, the interface, and the Electron app. Closing the window or Control-C stops the stack.
 
-The desktop app connects automatically using a private, per-server session credential. A separate browser tab requires an access code, displayed only when the owner explicitly runs:
+The desktop app authenticates itself. You can chat with an **OpenRouter API key** (App Settings) without installing a provider CLI. For Claude or Codex, install that CLI and sign in through it. The first run with no engine installed looks like this:
 
-```sh
-pnpm dev:access
-```
+![First run: install an AI engine](docs/screenshots/workspace.png)
 
-Paste that code into the local interface. It stays in tab memory and expires when the server restarts. Do not share it. `OMB_PORT`, `OMB_DATA_DIR`, and `AGENT_HARBOR_DEV_PORT` support separate development instances. When starting the processes individually, set `OMB_UI_ORIGIN` on the server to the exact interface origin, including its port; the default is `http://127.0.0.1:5199`.
+A separate browser tab needs an access code, shown only when you run `pnpm dev:access`. Paste it into the local UI. It lives in tab memory and dies when the server restarts. Do not share it.
 
-## Capabilities and permissions
+Default loopback ports: API `8799`, UI `5199`, webhook ingress `8800`. `OMB_PORT`, `OMB_DATA_DIR`, and `AGENT_HARBOR_DEV_PORT` isolate extra instances. If you start processes separately, set `OMB_UI_ORIGIN` on the server to the exact UI origin (default `http://127.0.0.1:5199`).
 
-- Run local provider CLIs in separate agent workspaces, with per-agent instructions and model selection.
-- Organize direct conversations, shared rooms, and tasks; approve requests in the conversation.
-- Explicitly enable a cloud computer, the isolated Local VM, or this computer for each agent. Computer access begins off. Starting in your home directory is a separate opt-in.
-- Add supported services through Composio, optional voice through ElevenLabs, and authenticated webhook triggers.
+Start with computer access and host-folder access **off**. Provider usage can cost money. Step-by-step tester notes: [beta testing guide](docs/beta-testing.md).
 
-Agents run with the capabilities of their provider CLI and its configured sandbox. A separate working directory does not isolate an OS account. Host access, auto mode, connected services, and provider-wide permission settings can grant substantial authority; choose them deliberately. Protect your backups and use isolated data for testing.
+## What it is
 
-OpenRouter's experimental Local VM loop is default-off globally and per agent and currently restricted to the exact configured model allowlist. An attended observation grant covers only known, no-argument screen/window observation tools. Shell commands, clicks, typing, and unknown operations require a fresh decision. The VM can still reach services you sign into inside it. See [OpenRouter](docs/openrouter.md).
+- A desktop workspace (Electron + a loopback harness) that runs **your** provider CLIs and API keys.
+- Per-agent identity, instructions, model selection, and computer destination (off, isolated Local VM, this computer, or a cloud box).
+- Approvals, leases, and fail-closed routing in application code — not in the prompt.
+- Direct chats, shared rooms, tasks, optional routines and webhooks.
+
+## What it is not
+
+- Not OpenMausBot's messaging-app roadmap (mobile clients, hosted fleet, team marketplace).
+- Not a multi-user ChatGPT-style web service (see [LibreChat comparison](docs/comparison-librechat.md) if you need that distinction).
+- Not a Discord bot, knowledge base, CRM, or Life OS.
+- Not a signed, auto-updating desktop product yet.
+
+Jinx is a Discord working relationship, not part of this application.
+
+## Origin and attribution
+
+Forked from OpenMausBot at the start of this repository. The MIT license and upstream copyright are preserved in [LICENSE](LICENSE). Display names, icons, and docs are Agent Harbor; some on-disk paths stay `~/.openmausbot` and `OMB_*` so existing local data and Keychain items keep working. Details: [rebrand boundary](docs/agent-harbor-rebrand.md).
+
+Harbor last reviewed upstream at OpenMausBot `0.1.21` (2026-08-16). Later OpenMausBot releases are a different product line (Apache-2.0 + `enterprise/`, Android/iOS, hosted workspaces). See [recent upstream notes](docs/upstream-openmausbot-recent.md) if you need that delta; do not treat it as a merge checklist.
+
+## Beta status
+
+**Source on GitHub is public. Trusted installers are not.** Mac test packages are ad-hoc signed and not notarized; Windows test installers are unsigned. Automatic updates are off. You do not need a paid Apple or Microsoft developer account to run from source.
+
+| Capability | Apple Silicon Mac | Windows x64 |
+|---|---|---|
+| Agents, text chat, model selection, tasks, rooms | Initial beta | Initial beta |
+| Microphone dictation | Implemented; live voice acceptance pending | Not supported |
+| Direct control and preview of this computer | Explicit permissions; experimental | Not supported |
+| Local VM, cloud computers, connected apps, scheduling | Optional; extra setup | Optional; extra setup |
+
+Intel Macs and Windows on ARM are not validated. Unsigned packages may warn or be blocked. Do not turn off system protections to participate. [Apple](https://support.apple.com/102445) · [Microsoft Smart App Control](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview).
+
+A merged pull request is not a GitHub Release. There is no versioned installer channel yet.
+
+## Permissions
+
+- Computer access starts **off**. Home-directory start and host-desktop attach are separate opt-ins.
+- OpenRouter's Local VM loop is default-off and model-allowlisted. Routine observation is narrow; shell, clicks, typing, and unknown tools need a fresh decision. [OpenRouter](docs/openrouter.md).
+- A working directory is not an OS sandbox. Auto mode, connected apps, and provider CLIs can grant real authority.
 
 ## Privacy and local data
 
-No analytics SDK is included, and the app does not send usage events or onboarding email addresses to an analytics service. The optional profile is stored locally. Your prompts and tool results still go to the provider or connected service you choose. Remote images in messages and service logos can contact their image hosts.
+No analytics SDK. Optional profile stays on disk. Prompts and tool results still go to the provider **you** chose.
 
-Data lives in `~/.openmausbot` by default. Credentials use macOS Keychain, or a private fallback file on Windows/Linux. The API returns configured flags instead of provider credentials. Session access codes use a private file in the data directory; they are never included in URLs, cookies, automatic startup logs, or agent subprocess environments. The health endpoint is public on loopback; workspace data and event streams require authentication.
-
-The legacy data path and application identifiers remain stable for compatibility. See the [rebrand boundary](docs/agent-harbor-rebrand.md). Source-code visibility does not publish your local data.
+Data directory: `~/.openmausbot` (legacy path, on purpose). Secrets: macOS Keychain, or mode `0600` `secrets.json` elsewhere. The API returns `configured` flags, never key values. Session codes are never put in URLs, cookies, or agent environments.
 
 ## Development checks
 
@@ -74,14 +95,18 @@ pnpm check:server-package
 pnpm audit --audit-level=moderate
 ```
 
-The server build cleans its output and bundles the external schema validator. Do not commit generated output. CI checks tests and packaging, runs dependency and history-secret scans, and reviews new dependencies on public pull requests. Historical scanner exceptions are restricted to a documented public ingestion key that has been removed from the app.
+CI runs tests and packaging on macOS, Ubuntu, and Windows, plus dependency and history-secret scans. Changes land through pull requests into `main`. See [Contributing](CONTRIBUTING.md).
 
-## Distribution and project documents
+## Deployment
 
-Automatic installer updates are disabled until signed release provenance is established. Local packaging commands use `--publish never`. Source testing can proceed while signing is deferred. Any later installer distribution needs an explicitly approved version, signing status, known limitations, and clean-machine results; do not present private unsigned checkpoints as a stable release. See the [release checklist](docs/release-readiness.md).
+Source is the supported path while signing is deferred. Package scripts use `--publish never`. A green build is not a signed release. [Deployment](docs/deployment.md) · [release checklist](docs/release-readiness.md).
 
-See [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [architecture](ARCHITECTURE.md), and [roadmap](ROADMAP.md). Historical screenshots under `docs/screenshots` show earlier upstream interfaces and demonstration conversations; the hero above is the current clean workspace reference.
+## Documents
+
+- [Architecture](ARCHITECTURE.md) · [Vision](VISION.md) · [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+- [Screenshots](docs/screenshots/README.md) · [Jinx / Discord boundary](docs/plans/jinx-out-of-harbor.md)
 
 ## License
 
-[MIT](LICENSE). The upstream copyright and contributor attribution are preserved.
+[MIT](LICENSE). Copyright of Milind Soni and OpenMausBot contributors is retained for the original work; Agent Harbor changes are copyright Laura Florey and contributors.

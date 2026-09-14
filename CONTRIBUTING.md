@@ -1,5 +1,15 @@
 # Contributing to Agent Harbor
 
+The repository is **public**. Everyday development uses **pull requests into `main`**. That is separate from a **beta release**.
+
+| GitHub surface | What it is for |
+|---|---|
+| Issues | Bugs and feature requests. Security problems go through [SECURITY.md](SECURITY.md), not a public issue. |
+| Pull requests | The review path. CI (tests on macOS, Ubuntu, and Windows, plus Linux package smoke and secret scans) runs on every PR. Dependabot also opens PRs. |
+| `main` | The default branch. Merge means the commit is in public source. It does not mean installers exist. |
+| Actions artifacts | Optional private package builds (for example the Windows workflow). Not a public download page. |
+| Releases | Versioned tags and, later, signed installers. **None yet.** Do not treat a merged PR as a release. |
+
 Start with an issue describing the problem and intended behavior. For security problems, follow [SECURITY.md](SECURITY.md) and do not publish exploit details or credentials in an issue.
 
 Use Node.js 24+ and the pinned pnpm version. Install with `pnpm install --frozen-lockfile`. Work on a branch and keep each change focused. Explain the trigger, resulting behavior, and validation in the pull request.
