@@ -16,9 +16,12 @@
 // the harness when it builds the integration:
 //   OMB_HARNESS_URL  base URL of the harness (http://127.0.0.1:8799)
 //   OMB_BOT_ID       the calling bot's id (excluded from list_bots; sender)
-//   OMB_COMMS_TOKEN  shared secret for the localhost-only internal endpoints
+//   OMB_COMMS_TOKEN  per-spawn secret for the localhost-only internal
+//                    endpoints; the harness binds it to this bot/thread/depth
+//                    and takes identity from it, not from request bodies
 //   OMB_TURN_DEPTH   this turn's comms depth (the harness refuses recursion)
 import readline from "node:readline";
+import { attachmentTools } from "../attachments.ts";
 
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
@@ -27,6 +30,7 @@ const TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const DEPTH = Number(process.env.OMB_TURN_DEPTH ?? "0") || 0;
 
 const TOOLS = [
+  ...(process.env.OMB_ATTACHMENTS === "1" ? attachmentTools(THREAD_ID, []).map(({name, description, inputSchema}) => ({name, description, inputSchema})) : []),
   {
     name: "list_bots",
     description:
@@ -151,6 +155,12 @@ async function handle(msg: Json) {
       const name = params.name as string;
       if (!TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {
+        if (name === "harbor_read_attachment") {
+          const result = await api("/api/internal/read-attachment", { method: "POST", body: JSON.stringify({ botId: BOT_ID, threadId: THREAD_ID, arguments: params.arguments ?? {} }) });
+          if (Array.isArray(result.content)) ok(id, result);
+          else textResult(id, JSON.stringify(result));
+          return;
+        }
         const { text, isError } = await callTool(name, (params.arguments ?? {}) as Json);
         textResult(id, text, isError);
       } catch (e) {

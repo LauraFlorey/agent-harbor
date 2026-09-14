@@ -15,6 +15,7 @@
 // <userData>/cua-connection.json for the harness server to hand to drivers.
 
 import { app } from "electron";
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import net from "node:net";
@@ -117,6 +118,15 @@ export async function startCua() {
   const wantEmbedded =
     app.isPackaged || process.env.OPENMAUSBOT_CUA_EMBEDDED === "1";
   let nextConnection;
+  // A development launch used to show "This computer" while never starting
+  // the installed driver. LaunchServices preserves CuaDriver's own macOS
+  // permission identity; this does not grant any new OS permissions.
+  if (!wantEmbedded && binary === INSTALLED_DRIVER && !(await socketAlive(STANDALONE_SOCKET))) {
+    await new Promise((resolve) => execFile("/usr/bin/open", ["-a", "/Applications/CuaDriver.app"], {timeout:5000}, () => resolve()));
+    for (let attempt=0; attempt<10 && !(await socketAlive(STANDALONE_SOCKET)); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
 
   if (wantEmbedded) {
     try {

@@ -1,7 +1,7 @@
 # OpenRouter
 
 OpenRouter is an optional API-backed Agent Harbor engine. It lets each bot use a
-text model available to your OpenRouter account without installing another CLI.
+model available to your OpenRouter account without installing another CLI.
 
 ## Setup
 
@@ -41,6 +41,25 @@ Each agent can have owner-authored system instructions under **Agent Settings
 conversations and rooms and do not change its provider, model, connected apps,
 computer destination, or permissions. Do not put credentials in this field.
 
+## Direct-conversation action tools
+
+Ordinary OpenRouter direct chats now use Harbor's general action loop for
+permitted-folder text work, attachments, approved commands, supported connected
+apps, local schedules and teammate coordination. **This computer** can mount
+host desktop tools when explicitly selected and configured. A model must handle
+the supplied tools; vision requests also require visual input support.
+
+These tools are independent of the exact Terra allowlist below. File reads and
+reversible text writes run directly during attended tasks. Commands, app actions
+and schedule creation need a concrete approval or an exact remembered grant.
+The desktop standing permission permits attended interactions, including actions
+that may submit forms. See [local work and permissions](local-work.md).
+
+API-model rooms have attachment reading but do not inherit the complete direct
+chat action set. The special Local VM turn does not mount the general attachment,
+file, app or peer tools. Selecting a provider or computer does not guarantee all
+buttons or all model capabilities become available.
+
 ## Experimental Local VM access
 
 OpenRouter Local VM access is off by default at both levels required to use it:
@@ -55,8 +74,9 @@ that the current account catalog contains that exact ID and currently reports
 text and image input, text output, and tool support. Missing, stale, malformed,
 or conflicting metadata disables tools while leaving text chat available.
 Aliases, routers, wildcards, fallbacks, `openrouter/auto`, and every other exact
-model ID are text-only. Multi-agent rooms also remain fully usable but do not
-receive this new OpenRouter tool loop during the initial rollout.
+model ID do not receive this experimental Local VM route. They may still use
+the ordinary action path where supported. Multi-agent rooms do not receive
+the Local VM tool loop.
 
 The application, not the model or provider, owns the destination and approval
 decision. Eligible turns can discover tools only from the validated isolated
@@ -104,20 +124,16 @@ details to [OpenRouter's documentation](https://openrouter.ai/docs/quickstart).
 
 ## Verification status
 
-The current personal-use implementation checkpoint is local commit `29a679a`.
-Its focused tests, full suite, updater tests, type checking, production build,
-Electron checks, and integrity checks passed, and the core development runtime
-started cleanly. The branch is not pushed, merged, packaged for release, or
-published.
+The September 7 source worktree includes general actions and attachment support;
+HEAD `4403d90` does not contain those uncommitted additions. Live Jinx teammate
+coordination reached a real OpenRouter agent. General action and driver tests,
+attachment tests and the production build passed during implementation; see the
+[current handoff](plans/current-handoff.md) for exact scopes and dated evidence.
 
-One earlier controlled run proved an approval-gated Terra tool call inside the
-Local VM, but the complete controlled-page acceptance sequence remains open. A
-later turn also reported **“Local VM lease ended before the turn completed”**;
-that lifecycle failure has not yet been resolved against the current
-checkpoint. The provider-hosted web-research request and revised routine-task
-approval policy have automated coverage but have not received a live
-credentialed acceptance run in this documentation update.
+The complete isolated Local VM acceptance sequence remains open. The lease
+heartbeat and consequence-gate calibration were implemented after the earlier
+lease-expiry failure, but a full post-change VM run has not established that
+failure is resolved. Host desktop and attachment success do not count as VM
+acceptance. No new packaged installation or release is implied.
 
-See [Current handoff](plans/current-handoff.md) for the exact repository and
-runtime state, and [Deployment and release](deployment.md) for the gates that
-separate source verification from a release.
+See [installation and recovery](deployment.md) before promoting a personal build.

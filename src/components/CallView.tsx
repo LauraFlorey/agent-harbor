@@ -36,6 +36,8 @@ type Phase = "listening" | "sending" | "working" | "speaking";
 const CALL_ENDPOINT_MS = 850;
 
 export function CallButton({ bot }: { bot: Bot }) {
+  const {state}=useStore();
+  if(state.instances.find(i=>i.instanceId===bot.modelSelection.instanceId)?.driverKind === "localModel") return <button disabled title="Cloud voice calls are disabled for private local conversations" className="text-[12px] text-ink-secondary px-2">Local text</button>;
   return (
     <CallTargetButton
       targetId={bot.id}
@@ -474,7 +476,7 @@ function Call({ bot }: { bot: Bot }) {
         <X size={18} />
       </button>
 
-      <MausAvatar color={bot.color} state={mascotState} size={220} animated trackPointer />
+      <MausAvatar profilePicture={bot.profilePicture} color={bot.color} state={mascotState} size={220} animated trackPointer />
 
       <div className="flex flex-col items-center gap-1.5 text-center">
         <div className="text-[20px] font-medium text-ink">{bot.name}</div>

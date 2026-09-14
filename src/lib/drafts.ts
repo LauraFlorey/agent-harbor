@@ -84,13 +84,25 @@ export function useDraft(id: string): [string, (next: string) => void] {
  * from text so typing does not stringify a large pasted payload per keypress. */
 export function useComposerDraft(
   id: string,
+  legacyId?: string,
 ): [
   string,
   (next: string) => void,
   Attachment[],
   (next: SetStateAction<Attachment[]>) => void,
 ] {
-  const store = getStore();
+  const [store] = useState(() => {
+    const storage = getStore();
+    // Adopt an existing bot draft once when switching to per-task storage.
+    if (legacyId && legacyId !== id) {
+      const oldText = getDraft(storage, legacyId), oldFiles = getDraftAttachments(storage, legacyId);
+      if (!getDraft(storage, id) && !getDraftAttachments(storage, id).length && (oldText || oldFiles.length)) {
+        setDraft(storage, id, oldText); setDraftAttachments(storage, id, oldFiles);
+        setDraft(storage, legacyId, ""); setDraftAttachments(storage, legacyId, []);
+      }
+    }
+    return storage;
+  });
   const [text, setText] = useDraft(id);
   const [attachments, setAttachmentState] = useState(() => getDraftAttachments(store, id));
   const setAttachments = useCallback(

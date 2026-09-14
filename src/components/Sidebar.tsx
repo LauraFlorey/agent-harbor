@@ -143,7 +143,7 @@ function StackedMauses({ members }: { members: Bot[] }) {
     const b = members[0];
     return (
       <div className="flex size-14 shrink-0 items-center justify-center">
-        {b ? <MausAvatar color={b.color} state="happy" size={56} /> : <Users size={24} className="text-ink-secondary" />}
+        {b ? <MausAvatar profilePicture={b.profilePicture} color={b.color} state="happy" size={56} /> : <Users size={24} className="text-ink-secondary" />}
       </div>
     );
   }
@@ -153,7 +153,7 @@ function StackedMauses({ members }: { members: Bot[] }) {
     <div className="flex size-14 shrink-0 items-center justify-center">
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
-          <MausAvatar key={b.id} color={b.color} state="happy" size={30} />
+          <MausAvatar key={b.id} profilePicture={b.profilePicture} color={b.color} state="happy" size={30} />
         ))}
         {extra > 0 && (
           <span className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary">
@@ -560,7 +560,7 @@ function ExportTeamPanel({
                 onClick={() => toggle(bot.id)}
                 className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-raised/70 disabled:opacity-40"
               >
-                <MausAvatar color={bot.color} state="happy" size={28} />
+                <MausAvatar profilePicture={bot.profilePicture} color={bot.color} state="happy" size={28} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] text-ink">{bot.name}</span>
                   {bot.title && <span className="block truncate text-[11.5px] text-ink-secondary">{bot.title}</span>}
@@ -662,7 +662,7 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
               onClick={() => toggle(b.id)}
               className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-raised/50"
             >
-              <MausAvatar color={b.color} state="happy" size={28} />
+              <MausAvatar profilePicture={b.profilePicture} color={b.color} state="happy" size={28} />
               <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{b.name}</span>
               <span
                 className={cn(
@@ -823,7 +823,7 @@ function BotListItem({ bot, onMenu }: { bot: Bot; onMenu: (menu: MenuState) => v
       )}
     >
       <MausAvatar
-        color={bot.color}
+        profilePicture={bot.profilePicture} color={bot.color}
         state={stateForBot({ ...bot, messages: visible })}
         size={56}
         motion={mascotMotion?.kind ?? "none"}

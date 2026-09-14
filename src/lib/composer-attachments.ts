@@ -17,7 +17,8 @@ export type FileAttachment = {
   size: number;
 };
 
-export type Attachment = PasteAttachment | FileAttachment;
+export type UploadAttachment = { kind: "upload"; id: string; name: string; size: number; mediaKind: string; notes: string };
+export type Attachment = PasteAttachment | FileAttachment | UploadAttachment;
 
 export function isAttachment(value: unknown): value is Attachment {
   if (!value || typeof value !== "object") return false;
@@ -31,6 +32,7 @@ export function isAttachment(value: unknown): value is Attachment {
       attachment.lines >= 1
     );
   }
+  if (attachment.kind === "upload") return typeof attachment.name === "string" && typeof attachment.mediaKind === "string" && typeof attachment.notes === "string" && /^[a-f0-9-]{36}$/.test(attachment.id);
   if (attachment.kind === "file") {
     return (
       typeof attachment.path === "string" &&
@@ -145,6 +147,8 @@ export function composeMessage(text: string, attachments: Attachment[]): string 
   attachments.forEach((a, i) => {
     if (a.kind === "paste") {
       parts.push(`<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`);
+    } else if (a.kind === "upload") {
+      parts.push(`<harbor-attachment id="${a.id}" name="${escapeAttribute(a.name)}" />`);
     } else {
       parts.push(`<attached-file path="${escapeAttribute(a.path)}" />`);
     }

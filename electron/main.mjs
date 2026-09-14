@@ -149,6 +149,7 @@ function createWindow() {
         : {}),
     webPreferences: {
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, "preload.cjs"),
     },
   });
@@ -158,6 +159,16 @@ function createWindow() {
     // reach the OS opener (file:, smb:, custom handlers stay denied).
     if (allowedExternalUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // The window itself must never leave the app origin: a top-level
+  // navigation would carry the window.ogb bridge to a remote page. Same
+  // policy as new windows — web/mail links go to the OS, the rest is dropped.
+  const appOrigin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
+  win.webContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    if (allowedExternalUrl(url)) void shell.openExternal(url);
   });
 
   // Packaged CI smoke hook. It validates the real renderer/preload bridge and

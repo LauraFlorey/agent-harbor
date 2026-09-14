@@ -887,7 +887,7 @@ describe("OpenRouter runtime", () => {
     });
     await terminalEvent(events);
 
-    expect(instance.adapter.capabilities.computerUse).toBe("none");
+    expect(instance.adapter.capabilities.computerUse).toBe("server");
     expect(chatBody).toMatchObject({
       model: "vendor/model",
       stream: true,
@@ -1001,7 +1001,7 @@ describe("OpenRouter runtime", () => {
     expect(events).toContainEqual(expect.objectContaining({
       type: "item.started",
       itemType: "tool",
-      title: "Local VM action",
+      title: "lookup",
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "item.completed", itemType: "tool", ok: true }));
     expect(events).toContainEqual(expect.objectContaining({ type: "turn.completed", ok: true }));

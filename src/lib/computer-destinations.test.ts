@@ -32,9 +32,9 @@ describe("computer destination compatibility", () => {
     expect(supportsComputerDestination(localMcp, "cloud")).toBe(true);
   });
 
-  it("allows a server-driven API engine to use only the isolated Local VM", () => {
+  it("allows a server-driven API engine to use local destinations", () => {
     expect(supportsComputerDestination(openRouterServerLoop, "vm")).toBe(true);
-    expect(supportsComputerDestination(openRouterServerLoop, "local")).toBe(false);
+    expect(supportsComputerDestination(openRouterServerLoop, "local")).toBe(true);
     expect(supportsComputerDestination(openRouterServerLoop, "cloud")).toBe(false);
   });
 

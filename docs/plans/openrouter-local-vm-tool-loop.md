@@ -13,20 +13,22 @@ can merely describe intended clicks does not meet the outcome.
 
 ## Current checkpoint
 
-Stories 1–6 and the first Local VM acceptance repair are implemented in the
-history leading to local personal-use checkpoint `29a679a` on branch
-`codex/personal-action-capabilities`. That branch also includes bounded
-OpenRouter web research, one routine-action approval per attended task, doubled
-operational time limits, per-agent system instructions, and the model-picker
-mouse-scroll repair. It is not pushed, merged, packaged for release, or
-released.
+Updated September 7, 2026. This document remains the scoped acceptance plan for
+**isolated OpenRouter Local VM turns**, not the general action/host-computer path.
+The August implementation history includes Stories 1–6 and the first acceptance
+repair. Later work added lease heartbeat and effect-based approval calibration.
+The current worktree is uncommitted beyond HEAD `4403d90`; use the
+[current handoff](current-handoff.md) for exact source/runtime state.
 
-Automated verification and the core development runtime are green. An earlier
-controlled run at `cf11c7c` proved one complete approval-gated Local VM tool
-call, but the full controlled acceptance sequence below remains incomplete. A
-later turn reported **“Local VM lease ended before the turn completed.”** That
-failure remains an unresolved acceptance risk and must not be hidden by the
-new time limits.
+One earlier controlled run at `cf11c7c` completed an approval-gated VM tool call.
+The full sequence below remains incomplete. A later turn reported “Local VM
+lease ended before the turn completed.” Subsequent implementation and tests have
+not established live resolution of that failure through a full acceptance run.
+
+Jinx and general OpenRouter host/file/app actions have since been implemented
+separately. Historical exclusions below apply to this VM route only. They do not
+mean those features are absent from Harbor, nor do their successes complete this
+VM acceptance plan. No new installer or recovery acceptance is claimed.
 
 ## Scope
 
@@ -52,8 +54,8 @@ new time limits.
 - Giving every OpenRouter model computer capability. The model catalog must
   distinguish models that reliably support tool calls.
 
-Cloud and host-computer destinations can reuse the provider-neutral loop in a
-later sprint after the Local VM boundary is proven.
+Host-computer actions now use a separate general action loop. That route does
+not widen the isolated Local VM tool set or replace its acceptance criteria.
 
 ## User story
 
@@ -94,7 +96,7 @@ model selection, usage reporting, and provider-safe errors.
 - Keep existing Claude and ACP behavior unchanged.
 
 **Checkpoint:** capability routing tests prove OpenRouter can be eligible for
-the Local VM without changing Codex, Grok API, or other text-only engines.
+the Local VM without changing other engines' existing capability routes.
 
 ### Story 2 — Turn-scoped MCP client
 
@@ -174,7 +176,7 @@ stored settings.
 ## Acceptance test
 
 Use a controlled test webpage rather than a live social account for automated
-CI and release verification.
+checks and personal checkpoint verification.
 
 1. Enable the global experimental switch and one test agent, select the exact
    `openai/gpt-5.6-terra` model and Local VM, and confirm the current catalog
@@ -196,21 +198,21 @@ CI and release verification.
 After those checks pass, a person may perform a separate manual site smoke test
 using an account they are authorized to access. The person signs in directly
 inside the Local VM; credentials are never pasted into chat. Automated and
-release tests use a controlled page rather than a live social account.
+personal-checkpoint tests use a controlled page rather than a live social account.
 
 ## Definition of done
 
 - All six story checkpoints pass.
-- Existing engine behavior and approval tests remain green on macOS, Windows,
-  and Linux.
-- The package smoke job passes.
+- Existing engine behavior and approval tests remain green on Laura's current
+  target platform; other platforms are recorded honestly when unverified.
+- The source or package smoke check for Laura's selected target passes.
 - No credentials, tool arguments containing secrets, or raw screenshots enter
   native provider logs.
 - Documentation states the supported destinations and model limitations.
 - The feature remains globally and per-agent default-off behind capability
-  checks. Broader release claims wait for the complete acceptance test; an
-  owner-enabled development checkpoint must not be described as generally
-  released computer support.
+  checks. Personal-readiness claims wait for the complete acceptance test; an
+  owner-enabled development checkpoint must not be described as an accepted
+  personal capability until the evidence exists.
 
 ## Roadmap after Story 6
 
@@ -234,7 +236,7 @@ remains separate from ordinary OpenRouter text chat.
 ### Now — complete controlled acceptance
 
 The first live approval-gated inspection passed on August 24, 2026: the Terra
-test agent requested `get_accessibility_tree`, the owner chose Allow once, the
+test agent requested `get_accessibility_tree`, the owner approved the request, the
 tool ran inside the isolated Local VM, and the agent returned a description of
 the visible desktop. Automated tests, type checking, cleanup verification, and
 the final security review also passed at checkpoint `cf11c7c`.
@@ -249,8 +251,8 @@ step at a time:
 3. Verify a consequential mock action cannot execute before approval.
 4. Verify interruption, restart cleanup, Computer Off, and global-switch
    rollback exactly as listed in the acceptance test.
-5. Run the package smoke check and record any platform coverage that remains
-   unverified rather than treating macOS results as cross-platform proof.
+5. Run the source or package smoke check on Laura's current target and record
+   every other platform as unverified and outside the present personal scope.
 
 Stop and re-evaluate before adding another compatibility repair if the live
 path exposes a new architectural failure after the successful checkpoint.
@@ -269,35 +271,13 @@ conflating them with Local VM authority:
   rewriting provider, model, permission, connected-app, or destination
   settings.
 
-### Next — preserve and review the release candidate
+### Next — preserve and review the personal checkpoint
 
 - Keep the exact implementation and documentation commits identifiable until
   the complete acceptance record is reviewed.
-- Update the public-facing status only after every required acceptance item is
+- Update the personal status only after every required acceptance item is
   observed, not merely configured or tested with fixtures.
-- Push, merge, package, and release as distinct owner-approved steps after an
-  explicit final review of branch scope, rollback behavior, and the acceptance
-  record. See [Deployment and release](../deployment.md).
-
-### Later — evaluate OpenRouter Spawn
-
-Run a time-boxed proof of concept on a separate branch or disposable workspace;
-do not replace the working Local VM path in place. Evaluate Spawn as a possible
-execution backend for provisioning, agent installation, credential injection,
-headless operation, status, and cleanup while Agent Harbor retains its own UI,
-approval gate, audit trail, bot settings, and safety policy.
-
-The proof of concept should compare:
-
-- local sandbox and one cloud environment;
-- structured headless output and lifecycle/error reporting;
-- cancellation, cleanup, credential boundaries, and cost visibility;
-- whether Agent Harbor can wrap Spawn behind a replaceable adapter without
-  weakening Allow once or exposing the host Mac;
-- the operational risk of depending on software that OpenRouter currently
-  labels alpha.
-
-Adopt Spawn only if that proof is simpler and at least as safe as the accepted
-Local VM checkpoint. Otherwise retain the working path and revisit Spawn after
-it matures. See the [OpenRouter Spawn repository](https://github.com/OpenRouterLabs/spawn)
-for its current supported matrix and status.
+- Merge to private `main`, package when useful, install, and promote as distinct
+  owner-approved steps after an explicit review of branch scope, rollback,
+  backup, recovery, and the acceptance record. See
+  [Private installation, packaging, and recovery](../deployment.md).

@@ -26,6 +26,16 @@ function isSecretName(name: string): boolean {
 
 const mask = (value: string) => `«redacted ${value.length} chars»`;
 
+/** Free-text variant for error messages that may quote a provider response,
+ * URL or header. Masks bearer credentials, prefixed API keys, and any
+ * `name=value` / `name: value` pair whose name reads as a credential. */
+export function redactText(text: string): string {
+  return text
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, (m) => `Bearer ${mask(m.slice(7).trim())}`)
+    .replace(/\b(?:sk|ck|ak|pk|rk|whsec|phc|ghp|gho|xai)[-_][A-Za-z0-9_-]{16,}/g, mask)
+    .replace(/([A-Za-z_-]*(?:key|token|secret|password|passwd|authorization)[A-Za-z_-]*\s*[=:]\s*["']?)([^\s"'&,;]{8,})/gi, (_m, name: string, value: string) => name + mask(value));
+}
+
 /** Deep copy with credential VALUES replaced. Handles the two shapes that
  * actually carry them: a plain object of env vars ({KEY: "v"}) and the ACP
  * wire shape (env: [{name, value}]). Anything unrecognised is copied as-is. */

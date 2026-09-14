@@ -1,3 +1,4 @@
+import { LocalWorkSettings } from "./LocalWorkSettings";
 import { ChevronLeft, Crown, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
@@ -11,6 +12,7 @@ import {
 import { ModelPicker } from "./ModelPicker";
 import { cn } from "@/lib/cn";
 import { requestNotificationPermission } from "@/lib/notify";
+import { prepareProfilePicture } from "@/lib/profile-picture";
 
 function Field({
   label,
@@ -34,6 +36,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
   const [voices, setVoices] = useState<Array<{ id: string; label: string; description?: string }>>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
+  const [pictureError, setPictureError] = useState("");
+  const [pictureLoading, setPictureLoading] = useState(false);
   const patch = (
     p: Partial<
       Pick<
@@ -48,6 +52,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "hostAccess"
         | "color"
         | "mascotExpression"
+        | "profilePicture"
         | "autoApprove"
         | "speakReplies"
         | "voice"
@@ -109,6 +114,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
       <div className="flex-1 overflow-y-auto px-5 pb-5">
         <div className="flex justify-center py-5">
           <MausAvatar
+            profilePicture={bot.profilePicture}
             color={bot.color}
             state={activeState}
             size={112}
@@ -124,7 +130,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 Bot
               </span>
               <button
-                onClick={() => patch({ color: "green", mascotExpression: null })}
+                onClick={() => patch({ color: "green", mascotExpression: null, profilePicture: null })}
                 className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
                 Reset
@@ -132,6 +138,29 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             </div>
 
             <div className="p-3">
+              <div className="mb-4">
+                <div className="mb-2 text-[13px] font-medium text-ink">Profile picture</div>
+                <label className="relative inline-flex cursor-pointer rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] hover:bg-raised">
+                  {pictureLoading ? "Preparing picture…" : "Choose picture"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                    aria-label="Choose profile picture" disabled={pictureLoading}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={async (event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      setPictureError("");
+                      setPictureLoading(true);
+                      try { patch({ profilePicture: await prepareProfilePicture(file) }); }
+                      catch (error) { setPictureError(error instanceof Error ? error.message : "This image could not be opened."); }
+                      finally { setPictureLoading(false); }
+                    }} />
+                </label>
+                {bot.profilePicture && <button onClick={() => patch({ profilePicture: null })}
+                  className="ml-2 rounded-lg px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised">Use mascot</button>}
+                <p className="mt-2 text-[12px] text-ink-secondary">Saved on this Mac. Pictures are cropped to the center; GIFs use a still frame.</p>
+                {pictureError && <p role="alert" className="mt-2 text-[12px] text-danger">{pictureError}</p>}
+              </div>
               <div className="mb-2 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
                 Expression
               </div>
@@ -246,11 +275,11 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             </div>
             <div className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
               {bot.chiefOfStaff && !canCoordinate
-                ? "This bot still holds the role, but its current engine cannot contact teammates. Choose a Claude or ACP engine to restore coordination."
+                ? "This bot still holds the role, but its current engine cannot contact teammates. Choose an engine with teammate coordination to restore it."
                 : bot.chiefOfStaff
                   ? "This is your primary contact. It can coordinate the other bots and combine their work into one answer."
                 : !canCoordinate
-                  ? "Choose a Claude or ACP engine to let this bot coordinate teammates."
+                  ? "Choose an engine with teammate coordination to let this bot contact teammates. Private local agents work independently."
                   : currentChief
                     ? `Make this bot your primary contact and hand the role over from ${currentChief.name}.`
                     : "Make this bot your primary contact for work that may involve several bots."}
@@ -348,7 +377,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               ).map(([mode, label], i) => (
                 <button
                   key={mode}
-                  disabled={mode === "vm" && isOpenRouter && !openRouterVmEligible}
+                  disabled={(engine?.driverKind === "localModel" && mode !== "off") || (engine?.driverKind === "jinx" && (mode === "cloud" || mode === "vm")) || (mode === "cloud" && isOpenRouter) || (mode === "vm" && isOpenRouter && !openRouterVmEligible)}
                   onClick={() => {
                     if (
                       mode === "local" &&
@@ -409,13 +438,14 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             )}
           </div>
 
+          <LocalWorkSettings key={bot.id} bot={bot} />
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">Host files</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
                 {bot.hostAccess
                   ? "Enabled: local turns start in your home folder. Provider approvals still apply."
-                  : "Off: local turns start in this bot's private Agent Harbor workspace."}
+                  : bot.workspaceFolder ? "Local turns use the permitted folder selected above." : "Off: local turns start in this bot's private Agent Harbor workspace."}
               </div>
             </div>
             <button
@@ -473,7 +503,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             </button>
           </div>
 
-          {state.config?.tts?.configured && (
+          {state.config?.tts?.configured && engine?.driverKind !== "localModel" && (
             <div className="rounded-xl bg-card p-4">
               <div className="text-[15px] font-medium text-ink">Bot voice</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
@@ -503,13 +533,14 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             <div>
               <div className="text-[15px] font-medium text-ink">Read replies aloud</div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
-                Speak this bot's answers as they arrive, even when you're in another chat
+                {engine?.driverKind === "localModel" ? "Cloud speech is disabled for private local conversations." : "Speak this bot's answers as they arrive, even when you're in another chat"}
               </div>
             </div>
             <button
               role="switch"
               aria-checked={Boolean(bot.speakReplies)}
               aria-label="Read this bot's replies aloud"
+              disabled={engine?.driverKind === "localModel"}
               onClick={() => patch({ speakReplies: !bot.speakReplies })}
               className={cn(
                 "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",

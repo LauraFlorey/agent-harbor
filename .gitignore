@@ -1,6 +1,7 @@
 node_modules
 .worktrees/
 dist
+dist-server
 dist-electron
 dist-native
 *.local

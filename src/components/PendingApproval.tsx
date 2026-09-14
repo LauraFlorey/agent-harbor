@@ -148,7 +148,7 @@ export function PendingApprovalActions({
         onClick={() => decide("allow")}
         className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
       >
-        Allow once
+        Approve
       </button>
     </div>
   );

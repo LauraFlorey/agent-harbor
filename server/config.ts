@@ -9,7 +9,9 @@ import type { InstanceConfigMap } from "./contracts.ts";
 import { createPlatformSecretStore, type SecretId, type SecretStore } from "./secret-store.ts";
 
 export interface AppConfig {
+  jinx?: { host: string; root: string };
   xai?: { key?: string; url?: string };
+  localModel?: { url?: string };
   /** OpenRouter key; persisted write-only and exposed only to its driver. */
   openrouter?: {
     apiKey?: string;
@@ -37,6 +39,7 @@ export interface AppConfig {
 export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
 const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
+export const CONSEQUENTIAL_LOG_FILE = join(DATA_DIR, "consequential-log.ndjson");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 const PRIVATE_DIR_MODE = 0o700;
@@ -177,7 +180,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     else secrets.delete(descriptor.id);
     delete section[descriptor.field];
   }
-  for (const key of ["xai", "openrouter", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
+  for (const key of ["xai", "openrouter", "localModel", "jinx", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
     const section = objectSection(sanitized[key]);
     if (section && Object.keys(section).length) {
       disk[key] = { ...objectSection(disk[key]), ...section };
@@ -214,6 +217,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
           claude: { driver: "claudeAgent" },
           codex: { driver: "codex" },
           openrouter: { driver: "openrouter" },
+          localModel: { driver: "localModel", config: { url: cfg.localModel?.url } },
           antigravity: { driver: "antigravityAgent" },
           opencodeGo: { driver: "opencodeGo" },
           computer: { driver: "boxAgent" },
@@ -228,7 +232,10 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     const id = map.openrouter ? "openrouter-api" : "openrouter";
     map[id] = { driver: "openrouter" };
   }
+  if (cfg.localModel?.url && !Object.values(map).some((entry) => entry.driver === "localModel")) map.localModel = { driver: "localModel", config: { url: cfg.localModel?.url } };
+  if (cfg.jinx && !Object.values(map).some(entry => entry.driver === "jinx")) map[map.jinx ? "jinx-remote" : "jinx"] = { driver: "jinx", config: cfg.jinx, displayName: "Jinx on Mac Mini" };
   for (const entry of Object.values(map)) {
+    if (entry.driver === "localModel" && cfg.localModel?.url) entry.config = { ...(entry.config as object ?? {}), url: cfg.localModel.url };
     entry.environment = {
       ...(cfg.xai?.key ? { XAI_API_KEY: cfg.xai.key } : {}),
       ...(entry.driver === "openrouter" && cfg.openrouter?.apiKey

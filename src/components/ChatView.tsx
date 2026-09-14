@@ -1,3 +1,4 @@
+import { MessageAttachments, withoutAttachmentReferences } from "./MessageAttachments";
 import { Component, memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -271,7 +272,7 @@ function Bubble({
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
   const webhookView = user ? webhookMessageView(text) : null;
-  const visibleText = webhookView?.task ?? text;
+  const visibleText = webhookView?.task ?? withoutAttachmentReferences(text);
   const collapsible =
     user && !webhookView && !expanded && (visibleText.length > USER_COLLAPSE_CHARS || visibleText.split("\n").length > USER_COLLAPSE_LINES);
 
@@ -334,10 +335,11 @@ function Bubble({
             </div>
           ) : user ? (
             <>
+              <MessageAttachments text={text} threadId={bot.threadId} />
               <div
                 className={cn(collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
               >
-                {text}
+                {visibleText}
               </div>
               {collapsible && (
                 <button onClick={() => setExpanded(true)} className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink">
@@ -414,7 +416,7 @@ function Bubble({
 
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
@@ -427,7 +429,7 @@ function ActivityChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} />
+          <MausAvatar profilePicture={state.bots.find((b) => b.id === comm.withBotId)?.profilePicture} color={comm.withColor} state="happy" size={16} />
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
@@ -533,7 +535,7 @@ const MessagesList = memo(function MessagesList({
     <>
       {messages.length === 0 && !bot.busy && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
-          <MausAvatar color={bot.color} state="idle" size={64} motion="none" motionKey={0} />
+          <MausAvatar profilePicture={bot.profilePicture} color={bot.color} state="idle" size={64} motion="none" motionKey={0} />
           <div className="text-[17px] font-semibold text-ink">{bot.name}</div>
           <div className="max-w-[360px] text-[14px] text-ink-secondary">
             {bot.description || "Send a message to start the conversation."}
@@ -694,7 +696,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           style={noDrag}
         >
           <MausAvatar
-            color={bot.color}
+            profilePicture={bot.profilePicture} color={bot.color}
             state={stateForBot({ ...bot, messages })}
             size={28}
             motion={mascotMotion?.kind ?? "none"}
@@ -825,7 +827,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           gated on busy like the pencil button — editing rewinds the thread,
           which a live turn forbids (the server 409s it). */}
       <Composer
-        key={bot.id}
+        key={bot.threadId}
         bot={bot}
         onEditLast={lastUserMessage && !bot.busy ? () => setEditingId(lastUserMessage.id) : undefined}
       />

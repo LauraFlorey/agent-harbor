@@ -51,6 +51,7 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
   }, [open]);
 
   const pick = (instance: InstanceInfo, model: string) => {
+    if (active?.driverKind === "localModel" && instance.driverKind !== "localModel" && !window.confirm("Switch to a cloud model? Continuing this task will send its conversation history, including notes read in this task, to the selected provider. Start a new task first if you want to keep this history local.")) return;
     // setModel replaces the whole selection, so a configured effort has to be
     // carried across deliberately. Same engine, different model: keep it —
     // silently resetting the level the user chose is not what "pick a model"

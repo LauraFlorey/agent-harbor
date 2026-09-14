@@ -169,3 +169,54 @@ export async function listToolkits(cfg: AppConfig): Promise<{ cards: ToolkitCard
 }
 
 export const CURATED_SLUGS = CURATED.map((c) => c.slug);
+
+/** Discovery sometimes embeds a cached mailbox/calendar sample in account metadata. */
+function withoutAccountSamples(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAccountSamples);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== "user_info")
+    .map(([key, item]) => [key, withoutAccountSamples(item)]));
+}
+
+function discoveryResult(result: any): any {
+  return {
+    ...result,
+    ...(result.structuredContent ? { structuredContent: withoutAccountSamples(result.structuredContent) } : {}),
+    content: result.content?.map((item: any) => {
+      if (item.type !== "text") return item;
+      try { return { ...item, text: JSON.stringify(withoutAccountSamples(JSON.parse(item.text))) }; }
+      catch { return item; }
+    }),
+  };
+}
+
+/** Discover app tools for the application-owned tool loop. Credentials remain here. */
+export async function actionAppTools(cfg: AppConfig, signal: AbortSignal): Promise<import("./action-tools.ts").HarborTool[]> {
+  if (!cfg.composio?.key) return [];
+  const call = async (method: string, params: unknown) => {
+    const response = await fetch(cfg.composio!.url || CONNECT_URL, {
+      method: "POST", redirect: "error",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-consumer-api-key": cfg.composio!.key! },
+      body: JSON.stringify({jsonrpc:"2.0",id:1,method,params}), signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+    });
+    if(!response.ok) throw new Error(`Connected apps returned HTTP ${response.status}`);
+    const text = (await response.text()).trim();
+    if(text.length > 2_000_000) throw new Error("Connected app result is too large");
+    const lines = text.startsWith("{") ? [text] : text.split("\n").filter(l=>l.startsWith("data:")).map(l=>l.slice(5).trim());
+    const messages = lines.flatMap(l=>{try{return [JSON.parse(l)];}catch{return [];}});
+    const message = messages.find(m=>String(m.id)==="1");
+    if(!message || message.error) throw new Error("Connected app request failed");
+    return message.result;
+  };
+  const catalog = await call("tools/list", {});
+  if(!Array.isArray(catalog?.tools) || catalog.tools.length>60) throw new Error("Invalid connected app catalog");
+  return catalog.tools.filter((t:any)=>t.name!=="COMPOSIO_MANAGE_CONNECTIONS").map((t:any)=>({
+    name:t.name,description:String(t.description??"").slice(0,4000),inputSchema:t.inputSchema,
+    effect:["COMPOSIO_SEARCH_TOOLS","COMPOSIO_GET_TOOL_SCHEMAS","COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(t.name) ? "read" : "external",
+    execute:async(args:Record<string,unknown>)=>{
+      const result = await call("tools/call",{name:t.name,arguments:args});
+      return ["COMPOSIO_SEARCH_TOOLS", "COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(t.name) ? discoveryResult(result) : result;
+    },
+  }));
+}

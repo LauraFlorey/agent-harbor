@@ -203,7 +203,7 @@ export function LocalComputerSection() {
     if (
       next &&
       !window.confirm(
-        "Enable experimental OpenRouter access to the isolated Local VM? Each agent must also opt in, only verified Terra is eligible, and every tool call requires Allow once.",
+        "Enable experimental OpenRouter access to the isolated Local VM? Each agent must also opt in, only verified Terra is eligible, routine actions use a task-scoped approval, and consequential actions ask separately.",
       )
     ) return;
     try {
@@ -225,7 +225,7 @@ export function LocalComputerSection() {
     <>
       <Card
         title="OpenRouter Local VM (experimental)"
-        subtitle="Off by default. When enabled, each agent must separately opt in, the exact verified Terra model must pass current metadata checks, and every tool call requires Allow once. Other OpenRouter models keep ordinary text chat."
+        subtitle="Off by default. When enabled, each agent must separately opt in, the exact verified Terra model must pass current metadata checks, routine actions use a task-scoped approval, and consequential actions ask separately. Other OpenRouter models keep ordinary text chat."
       >
         <div className="flex items-center justify-between gap-4">
           <div className="text-[13px] text-ink-secondary">

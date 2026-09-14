@@ -148,6 +148,7 @@ export interface BotRecord {
   systemInstructions?: string;
   notifications: boolean;
   color: MausColor;
+  profilePicture?: string | null;
   mascotExpression?: MausExpression | null;
   unread: boolean;
   modelSelection: ModelSelection;
@@ -161,6 +162,9 @@ export interface BotRecord {
   /** Start local provider CLIs in the user's home directory instead of this
    * bot's private workspace. Off by default and never exported with teams. */
   hostAccess?: boolean;
+  workspaceFolder?: string;
+  autoRun?: boolean;
+  desktopAuto?: boolean;
   /** Auto mode: the bot approves its own tool permissions and keeps
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */

@@ -26,11 +26,13 @@ export function SpeakButton({
 }) {
   const { state } = useStore();
   const speech = useSpeech();
-  const ready = Boolean(state.config?.tts?.ready);
+  const owner=state.bots.find(b=>b.id===botId);
+  const local=state.instances.find(i=>i.instanceId===owner?.modelSelection.instanceId)?.driverKind === "localModel";
+  const ready = !local && Boolean(state.config?.tts?.ready);
   const mine = speech.messageId === messageId && speech.status !== "idle";
   const preparing = mine && speech.status === "preparing";
 
-  const label = !ready
+  const label = local ? "Cloud speech is disabled for private local conversations" : !ready
     ? "Add an ElevenLabs key in App Settings to read messages aloud"
     : mine
       ? "Stop speaking"

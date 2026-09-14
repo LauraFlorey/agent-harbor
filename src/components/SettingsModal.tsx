@@ -1,3 +1,4 @@
+import { LocalModelSettings } from "./LocalWorkSettings";
 // App settings, as a real modal with sections rather than one long panel.
 // Per-bot settings (persona, model, computer) stay in SettingsPanel — this
 // is the stuff shared by every bot: who you are, your keys, and the
@@ -196,6 +197,7 @@ export function SettingsModal() {
                 <Card title="Profile" subtitle="Shown in the sidebar. Saved as you go.">
                   <ProfileFields />
                 </Card>
+                <LocalModelSettings />
                 <UpdatesRow />
               </>
             )}

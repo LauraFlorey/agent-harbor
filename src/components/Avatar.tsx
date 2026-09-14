@@ -96,6 +96,7 @@ export type MausAvatarHandle = CursorAvatarHandle;
 
 export type MausAvatarProps = {
   color: MausColor;
+  profilePicture?: string | null;
   /** Named behaviour — drives the expression pool, its cadence and blinking. */
   state?: MausState;
   /** Pin one of the 25 faces and stop the state's own drift. */
@@ -130,6 +131,7 @@ export type MausAvatarProps = {
 function MausAvatarComponent(
   {
     color,
+    profilePicture,
     state = "idle",
     expression,
     size = 44,
@@ -181,6 +183,11 @@ function MausAvatarComponent(
     });
   };
   const onPointerLeave = () => setPointer({ x: 0, y: 0 });
+
+  if (profilePicture) {
+    return <img src={profilePicture} alt={label ?? "Agent profile picture"} width={size} height={size}
+      className="inline-block shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
+  }
 
   return (
     <span

@@ -26,7 +26,7 @@ export function supportsComputerDestination(
       (capabilities.computerUse === "mcp" || capabilities.computerUse === "server")
     );
   }
-  if (destination === "local") return capabilities?.computerUse === "mcp";
+  if (destination === "local") return capabilities?.computerUse === "mcp" || capabilities?.computerUse === "server";
   return capabilities?.computerUse === "mcp" || capabilities?.computerUse === "native";
 }
 

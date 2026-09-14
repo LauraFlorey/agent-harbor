@@ -32,6 +32,6 @@ export function agentWorkspace(botId: string): string {
 }
 
 /** Host access is an explicit per-bot choice; absence always fails closed. */
-export function agentWorkingDirectory(bot: { id: string; hostAccess?: boolean }): string {
-  return bot.hostAccess === true ? homedir() : agentWorkspace(bot.id);
+export function agentWorkingDirectory(bot: { id: string; hostAccess?: boolean; workspaceFolder?: string }): string {
+  return bot.workspaceFolder || (bot.hostAccess === true ? homedir() : agentWorkspace(bot.id));
 }

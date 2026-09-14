@@ -160,6 +160,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       });
 
       const appServerArgs = ["app-server"];
+      if (turn.integrations?.agents) mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents);
       if (turn.integrations?.computer) {
         mountMcpServer(appServerArgs, env, "computer", {
           command: process.execPath,
@@ -503,6 +504,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           contextMode: "resume-cursor",
           executionMode: "local-process",
           computerUse: "mcp",
+          agentsMcp: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
         },
         sendTurn,

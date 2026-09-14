@@ -17,6 +17,10 @@ export function initAnalytics() {
     api_host: "https://us.i.posthog.com",
     autocapture: false, // never capture clicked-element text (conversation leak)
     capture_pageview: false, // single-window desktop app — no page routes
+    // Recorder/surveys/toolbar are fetched as <script> tags from PostHog's
+    // asset host; none are used here and the packaged UI's CSP allows
+    // scripts from the app origin only.
+    disable_external_dependency_loading: true,
     person_profiles: "identified_only",
     persistence: "localStorage",
   });

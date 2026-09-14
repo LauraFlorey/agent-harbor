@@ -4,7 +4,7 @@
 // object form — so a change to either shape breaks the test, not the secret.
 import { describe, expect, it } from "vitest";
 
-import { redactSecrets } from "./redact.ts";
+import { redactSecrets, redactText } from "./redact.ts";
 
 const flat = (value: unknown) => JSON.stringify(value);
 
@@ -99,5 +99,27 @@ describe("redactSecrets", () => {
     let deep: Record<string, unknown> = { token: "deep-secret" };
     for (let i = 0; i < 20; i++) deep = { nested: deep };
     expect(() => redactSecrets(deep)).not.toThrow();
+  });
+});
+
+// The HTTP catch-all hands error text to the UI verbatim. Provider failures
+// quote what was sent, so credential-shaped fragments must not survive.
+describe("redactText", () => {
+  it("masks bearer credentials, prefixed keys and name=value pairs", () => {
+    const out = redactText(
+      'OpenRouter 401: header "Authorization: Bearer sk-or-v1-abcdefghijklmnopqrstuvwxyz0123" rejected; ' +
+        "retry with api_key=ak_ZZZZZZZZZZZZZZZZZZZZ or ?token=whsec_QQQQQQQQQQQQQQQQQQQQQQQQ",
+    );
+    expect(out).not.toContain("sk-or-v1-abcdefghijklmnopqrstuvwxyz0123");
+    expect(out).not.toContain("ak_ZZZZZZZZZZZZZZZZZZZZ");
+    expect(out).not.toContain("whsec_QQQQQQQQQQQQQQQQQQQQQQQQ");
+    expect(out).toContain("OpenRouter 401");
+    expect(out).toContain("api_key=«redacted");
+  });
+
+  it("leaves ordinary validation messages untouched", () => {
+    for (const text of ["Give the routine a name", "no such bot", "Choose a text file smaller than 256 KB", "keyboard shortcut: cmd+k"]) {
+      expect(redactText(text)).toBe(text);
+    }
   });
 });

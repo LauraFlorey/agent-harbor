@@ -1,3 +1,4 @@
+import { localModelUrl } from "../local-model.ts";
 // OpenRouter driver — OpenAI-compatible chat completions with account-aware
 // model discovery. The API key arrives through the instance environment and
 // is never retained in config.json, returned to the renderer, or logged.
@@ -23,7 +24,6 @@ import {
 } from "../provider-tool-loop.ts";
 import { appendNative } from "./native.ts";
 
-const DRIVER_KIND = "openrouter";
 const DEFAULT_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "openrouter/auto";
 const DEFAULT_COMPLETION_TIMEOUT_MS = 120_000;
@@ -534,6 +534,7 @@ export async function streamOpenRouterCompletion(
 
     const response = await fetcher(`${request.url.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
+      redirect: "error",
       headers: {
         authorization: `Bearer ${request.apiKey}`,
         "content-type": "application/json",
@@ -797,17 +798,24 @@ export async function streamOpenRouterCompletion(
   }
 }
 
-export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderDriver<OpenRouterConfig> {
+export function createOpenRouterDriver(fetcher: typeof fetch = fetch, local = false, relay?: {
+  kind: string;
+  displayName: string;
+  afterTurn: (turn: SendTurnInput, turnId: string, text: string, signal: AbortSignal) => Promise<void>;
+}): ProviderDriver<OpenRouterConfig> {
+  const DRIVER_KIND = relay?.kind ?? (local ? "localModel" : "openrouter");
+  const localDecode = (raw: unknown): OpenRouterConfig => ({ ...decodeConfig(raw), url: localModelUrl((raw as { url?: unknown } | undefined)?.url) });
   return {
     driverKind: DRIVER_KIND,
-    metadata: { displayName: "OpenRouter", supportsMultipleInstances: true },
+    metadata: { displayName: relay?.displayName ?? (local ? "Local model (LM Studio / Ollama)" : "OpenRouter"), supportsMultipleInstances: true },
     models: STATIC_MODELS,
-    decodeConfig,
-    defaultConfig: () => decodeConfig({}),
+    decodeConfig: local ? localDecode : decodeConfig,
+    defaultConfig: () => local ? localDecode({}) : decodeConfig({}),
 
     async create(input: DriverCreateInput<OpenRouterConfig>): Promise<ProviderInstance> {
       const { instanceId, config } = input;
-      const apiKey = input.environment[config.apiKeyEnv] ?? process.env[config.apiKeyEnv] ?? "";
+      const apiKey = relay ? "private-relay" : local ? "local-model" : input.environment[config.apiKeyEnv] ?? process.env[config.apiKeyEnv] ?? "";
+      if (local) localModelUrl(config.url);
       const models: ModelCatalog = structuredClone(STATIC_MODELS);
       const listeners = new Set<RuntimeEventListener>();
       const active = new Map<string, { abort: AbortController; turnId: string; done: Promise<void> }>();
@@ -848,6 +856,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
         }
         const response = await fetcher(`${config.url}/chat/completions`, {
           method: "POST",
+          redirect: "error",
           headers: {
             authorization: `Bearer ${apiKey}`,
             "content-type": "application/json",
@@ -885,14 +894,19 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
           markDone = resolve;
         });
         active.set(threadId, { abort, turnId, done });
+        // Some local chat templates reject an assistant greeting before the
+        // first user turn. Harbor's seeded welcome is UI copy, not model history.
+        const history = turn.transcript ?? [];
+        const firstUser = history.findIndex(message => message.role === "user");
+        const replay = local ? (firstUser < 0 ? [] : history.slice(firstUser)) : history;
         const messages = [
           ...(turn.system ? [{ role: "system", content: turn.system }] : []),
-          ...(turn.transcript ?? []).map((message) => ({ role: message.role, content: message.text })),
+          ...replay.map((message) => ({ role: message.role, content: message.text })),
           { role: "user", content: turn.text },
         ] as OpenRouterMessage[];
         const selectedModel = turn.model || models.default;
         const serverToolTurn = turn.integrations?.serverToolTurn;
-        const webResearch = turn.integrations?.webResearch;
+        const webResearch = local || relay ? undefined : turn.integrations?.webResearch;
         try {
           appendNative(threadId, serverToolTurn
             ? {
@@ -954,7 +968,7 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
                       type: "item.started",
                       itemType: "tool",
                       itemId,
-                      title: "Local VM action",
+                      title: call.name,
                     });
                   },
                   onToolCompleted: (call, ok) => {
@@ -990,6 +1004,12 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             });
             if (text.trim()) emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text });
             if (usage) emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...usage });
+            if (relay && text.trim()) {
+              const itemId = newId();
+              emit({ ...base(threadId, turnId), itemId, type: "item.started", itemType: "tool", title: "Save conversation to Jinx memory" });
+              await relay.afterTurn(turn, turnId, text, abort.signal);
+              emit({ ...base(threadId, turnId), itemId, type: "item.completed", itemType: "tool", ok: true });
+            }
             emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: null, cost: null });
           } catch (error) {
             const aborted = error instanceof Error && error.name === "AbortError";
@@ -1026,7 +1046,14 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
         models,
         refreshModels: async (signal) => {
           if (!apiKey) return;
-          const fresh = await fetchOpenRouterModels(apiKey, config.url, fetcher, signal);
+          const fresh = local ? await (async () => {
+            const response = await fetcher(`${localModelUrl(config.url)}/models`, { signal: signal ?? AbortSignal.timeout(5000), redirect: "error" });
+            if (!response.ok) throw new Error("Local model server is unavailable. Start it in LM Studio or Ollama.");
+            const data = await catalogPayload(response);
+            const options = (Array.isArray(data.data) ? data.data : []).flatMap((record: any) => modelId(record?.id) && !/embed/i.test(record.id) ? [{ id: record.id, label: record.id }] : []);
+            if (!options.length) throw new Error("Load a model in LM Studio or Ollama first.");
+            return { default: options[0].id, options };
+          })() : await fetchOpenRouterModels(apiKey, config.url, fetcher, signal);
           models.default = fresh.default;
           models.options.splice(0, models.options.length, ...fresh.options);
         },
@@ -1037,7 +1064,9 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
             sessionModelSwitch: "in-session",
             contextMode: "transcript-replay",
             executionMode: "local-process",
-            computerUse: "none",
+            computerUse: local ? "none" : "server",
+            agentsMcp: !local,
+            composioMcp: !local,
           },
           sendTurn,
           interruptTurn: async (threadId) => {
@@ -1078,3 +1107,4 @@ export function createOpenRouterDriver(fetcher: typeof fetch = fetch): ProviderD
 }
 
 export const OpenRouterDriver = createOpenRouterDriver();
+export const LocalModelDriver = createOpenRouterDriver(fetch, true);

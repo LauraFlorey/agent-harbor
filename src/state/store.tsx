@@ -118,6 +118,7 @@ export interface Bot {
   systemInstructions?: string;
   notifications: boolean;
   color: MausColor;
+  profilePicture?: string | null;
   mascotExpression?: string | null;
   unread: boolean;
   busy?: boolean;
@@ -128,6 +129,9 @@ export interface Bot {
   openrouterLocalVm?: boolean;
   /** Explicit opt-in to start local provider CLIs in the user's home folder. */
   hostAccess?: boolean;
+  workspaceFolder?: string;
+  autoRun?: boolean;
+  desktopAuto?: boolean;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
   /** tools this bot may always use without asking */
@@ -177,6 +181,7 @@ export function messageVersions(bot: Bot, message: Message): Message[] {
 
 /** GET /api/config — configured flags only; secrets are never echoed. */
 export interface ConfigStatus {
+  localModel?: { url: string };
   xai?: { configured: boolean };
   openrouter?: { configured: boolean; localVmEnabled: boolean };
   composio: { configured: boolean; apiKeyConfigured?: boolean };
@@ -353,7 +358,11 @@ type Action =
           | "openrouterLocalVm"
           | "color"
           | "mascotExpression"
+          | "profilePicture"
           | "autoApprove"
+          | "workspaceFolder"
+          | "autoRun"
+          | "desktopAuto"
           | "speakReplies"
           | "voice"
           | "pinned"
@@ -1036,6 +1045,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   description: source.description,
                   systemInstructions: source.systemInstructions ?? "",
                   notifications: source.notifications,
+                  profilePicture: source.profilePicture ?? null,
                   modelSelection: source.modelSelection,
                   ...(source.computer ? { computer: source.computer } : {}),
                 }),
@@ -1232,7 +1242,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // Auto-speak is disabled during any call. Call mode owns both the
             // singleton speaker and microphone ordering for its whole lifetime.
             const owner = stateRef.current.bots.find((b) => b.threadId === frame.threadId);
-            if (owner?.speakReplies && currentCall() === null && frame.message.text?.trim()) {
+            if (owner?.speakReplies && stateRef.current.instances.find(i=>i.instanceId===owner.modelSelection.instanceId)?.driverKind !== "localModel" && currentCall() === null && frame.message.text?.trim()) {
               void speaker.speak(frame.message.text, {
                 botId: owner.id,
                 messageId: frame.message.id,

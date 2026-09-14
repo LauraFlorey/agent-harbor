@@ -64,6 +64,7 @@ export function Composer({
   // Per-thread draft: switching bots unmounts this component, so both the
   // text and its attachment chips have to outlive it (see lib/drafts).
   const [text, setText, attachments, setAttachments] = useComposerDraft(
+    `thread:${threadId}`,
     group ? `group:${group.id}` : `bot:${bot?.id ?? ""}`,
   );
   const addAttachments = useCallback(
@@ -74,6 +75,7 @@ export function Composer({
     (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
     [setAttachments],
   );
+  const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
@@ -134,6 +136,7 @@ export function Composer({
   // a chip on its own is a message: the send control has to appear for it
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const send = () => {
+    if (uploading) return;
     const t = composeMessage(text, attachments);
     if (!t) return;
     if (busy) {
@@ -247,7 +250,7 @@ export function Composer({
               >
                 {peer.bot ? (
                   <MausAvatar
-                    color={peer.bot.color}
+                    profilePicture={peer.bot.profilePicture} color={peer.bot.color}
                     state={normalizeState(peer.bot.mascotExpression) ?? "happy"}
                     size={24}
                   />
@@ -279,6 +282,8 @@ export function Composer({
           </div>
         )}
         <ComposerAttachments
+          threadId={threadId}
+          onBusy={setUploading}
           items={attachments}
           onAdd={addAttachments}
           onRemove={removeAttachment}
@@ -388,6 +393,7 @@ export function Composer({
         {hasContent && (
           <button
             onClick={send}
+            disabled={uploading}
             aria-label={busy ? "Queue message" : "Send message"}
             title={busy ? "Queue — sends when the bot finishes" : "Send"}
             className={cn(

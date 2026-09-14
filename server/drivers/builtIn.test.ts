@@ -37,8 +37,10 @@ const EXPECTED: Record<string, RoutingCapabilities> = {
   openrouter: {
     contextMode: "transcript-replay",
     executionMode: "local-process",
-    computerUse: "none",
+    computerUse: "server",
   },
+  localModel: {contextMode:"transcript-replay",executionMode:"local-process",computerUse:"none"},
+  jinx: {contextMode:"transcript-replay",executionMode:"local-process",computerUse:"server"},
   claudeAgent: RESUME_LOCAL_MCP,
   codex: RESUME_LOCAL_MCP,
   antigravityAgent: RESUME_LOCAL_NONE,
@@ -61,7 +63,7 @@ describe("built-in provider capabilities", () => {
         displayName: driver.metadata.displayName,
         environment: {},
         enabled: true,
-        config: driver.defaultConfig(),
+        config: driver.driverKind === "jinx" ? { host: "test-jinx", root: "/tmp/jinx" } : driver.defaultConfig(),
       });
       try {
         expect(instance.adapter.capabilities).toMatchObject(EXPECTED[driver.driverKind]);

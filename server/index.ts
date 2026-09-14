@@ -1,11 +1,19 @@
+import { localModelSupportsVision } from "./local-model.ts";
+import { ATTACHMENT_LIMIT, saveAttachment, publicAttachment, attachmentIds, attachmentContext, attachmentTools, attachmentInstructions, loadAttachment, ATTACHMENTS_DIR } from "./attachments.ts";
+import { commandTool } from "./action-command.ts";
+import { localModelUrl } from "./local-model.ts";
+import { actionTurn } from "./action-turn.ts";
+import { fileTools } from "./action-tools.ts";
+import { ActionApprovals } from "./action-approval.ts";
+import { actionMcp } from "./action-mcp.ts";
 // Agent Harbor server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
-import { dirname, extname, join, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { approvalKey, autoDecision } from "./auto-approve.ts";
@@ -13,6 +21,7 @@ import { agentWorkingDirectory } from "./agent-workspace.ts";
 import * as box from "./box.ts";
 import * as composio from "./composio.ts";
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { decodeJinxConnection, jinxActionTools } from "./jinx-connection.ts";
 import {
   containerComputerAction,
   containerComputerMcp,
@@ -21,7 +30,7 @@ import {
   setupCommands,
   type LifecycleAction,
 } from "./container-computer.ts";
-import { ensureDirs, instanceConfigs, loadConfig, saveConfig, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
+import { ensureDirs, instanceConfigs, loadConfig, saveConfig, CONSEQUENTIAL_LOG_FILE, EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import { resetPathCache } from "./env-path.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import {
@@ -74,6 +83,7 @@ import {
   DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS,
   type TurnObservationEvent,
 } from "./tool-turn-control.ts";
+import { redactText } from "./redact.ts";
 import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -101,6 +111,30 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".woff2": "font/woff2",
 };
+// Renderer policy for the packaged UI (dev runs under Vite, which injects
+// its own inline refresh preamble and HMR socket, so no header there). The
+// window talks only to its own origin plus PostHog; images may come from
+// plugin catalogs and model-authored markdown, so any https host is allowed
+// for <img> only. shiki highlights with a WASM regex engine, hence
+// wasm-unsafe-eval (not unsafe-eval). Inline styles come from React and shiki.
+const UI_HEADERS = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: data:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://us.i.posthog.com",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+  ].join("; "),
+  "x-content-type-options": "nosniff",
+};
 
 ensureDirs();
 const cfg = loadConfig();
@@ -111,9 +145,25 @@ const bus = new EventBus();
 bus.attach(registry.instances());
 
 // ── peer-agent comms wiring ────────────────────────────────────────────
-// A shared secret guards the localhost-only /api/internal endpoints the
-// agents-proxy calls; regenerated each boot (the proxy gets it via env).
-const COMMS_TOKEN = randomBytes(24).toString("hex");
+// Each spawned agents-proxy gets its own token for the localhost-only
+// /api/internal endpoints, bound here to the bot/thread/depth it was spawned
+// for. The handlers take identity from the token, never from the request
+// body, so one bot's agent process cannot act as another bot. Tokens stay
+// valid for the life of the agent process (native sessions outlive turns),
+// so the map is capped FIFO rather than cleared per turn.
+interface CommsSession { botId: string; threadId: string; depth: number }
+const commsSessions = new Map<string, CommsSession>();
+const MAX_COMMS_SESSIONS = 2000;
+function issueCommsToken(session: CommsSession): string {
+  const token = randomBytes(24).toString("hex");
+  commsSessions.set(token, session);
+  if (commsSessions.size > MAX_COMMS_SESSIONS) commsSessions.delete(commsSessions.keys().next().value!);
+  return token;
+}
+function commsSession(authorization: string | undefined): CommsSession | undefined {
+  const token = authorization?.match(/^Bearer\s+([a-f0-9]{48})$/)?.[1];
+  return token ? commsSessions.get(token) : undefined;
+}
 // Cap message chains: depth 0 = a user-initiated turn (may ask a peer);
 // a peer invoked via ask_bot runs at depth 1 and gets NO agents tool, so
 // A→B is allowed but B→C (and A→B→A loops) never start.
@@ -136,7 +186,7 @@ function agentsIntegration(botId: string, threadId: string, depth: number) {
       OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`,
       OMB_BOT_ID: botId,
       OMB_THREAD_ID: threadId,
-      OMB_COMMS_TOKEN: COMMS_TOKEN,
+      OMB_COMMS_TOKEN: issueCommsToken({ botId, threadId, depth }),
       OMB_TURN_DEPTH: String(depth),
     },
   };
@@ -454,6 +504,19 @@ function localVmAction(tool: string): string {
   return bare ? `Use ${bare.slice(0, 100)} in the isolated desktop` : "Use a tool in the isolated desktop";
 }
 
+function logConsequentialDecision(info: {
+  tool: string;
+  consequential: boolean;
+  unattended: boolean;
+  authorized: boolean;
+}): void {
+  try {
+    appendFileSync(CONSEQUENTIAL_LOG_FILE, JSON.stringify({ at: Date.now(), ...info }) + "\n", { mode: 0o600 });
+  } catch {
+    // A tuning log must never affect the approval decision.
+  }
+}
+
 function createLocalVmApprovalChannel(
   bot: NonNullable<ReturnType<typeof store.bot>>,
   threadId: string,
@@ -466,7 +529,15 @@ function createLocalVmApprovalChannel(
       // Auto mode is an owner-controlled standing decision. Otherwise the
       // first routine action asks once and grants only this turn's closure.
       // Consequential calls always keep their own fresh approval.
-      if (routineAuthorization.shouldAuthorize(event.consequential, isUnattended(bot.id))) {
+      const unattended = isUnattended(bot.id);
+      const authorized = routineAuthorization.shouldAuthorize(event.consequential, unattended);
+      logConsequentialDecision({
+        tool: event.tool,
+        consequential: event.consequential,
+        unattended,
+        authorized,
+      });
+      if (authorized) {
         if (!decisions.resolve({ challenge: event.challenge, behavior: "allow" })) {
           throw new Error("Local VM routine action authorization failed");
         }
@@ -596,6 +667,53 @@ function observeLocalVmTurn(botId: string, event: TurnObservationEvent): void {
   } else if (event.type === "cleanup.outcome" && event.outcome === "failure") {
     localVmProductState(botId, "failed");
   }
+}
+
+function threadAttachmentIds(threadId: string): string[] {
+  const messages = store.groupByThread(threadId) ? store.messagesFor(threadId) : store.activePath(threadId);
+  return [...new Set(messages.filter(m => m.role === "user").flatMap(m => attachmentIds(m.text ?? "")))];
+}
+
+const actionApprovals = new ActionApprovals(store, broadcast);
+let hostActionOwner: string | null = null;
+function generalActionTurn(bot: NonNullable<ReturnType<typeof store.bot>>, threadId: string, integrations: NonNullable<import("./contracts.ts").SendTurnInput["integrations"]>, localOnly: boolean): ServerToolTurnBridge {
+  const binding = JSON.stringify([bot.modelSelection, bot.computer, bot.workspaceFolder, bot.hostAccess]);
+  return { run: async (turnId, signal, operation) => actionTurn({
+    authorize: (tool, call, actionSignal) => {
+      const current = store.bot(bot.id);
+      if(!current || JSON.stringify([current.modelSelection,current.computer,current.workspaceFolder,current.hostAccess]) !== binding) return Promise.resolve(false);
+      return actionApprovals.authorize(bot, threadId, tool, call, actionSignal, isUnattended(bot.id));
+    },
+    tools: async (signal) => {
+      const tools = fileTools(agentWorkingDirectory(bot));
+      const localVision = localOnly && await localModelSupportsVision(bot.modelSelection.model, (instanceConfigs(cfg)[bot.modelSelection.instanceId]?.config as {url?:string})?.url);
+      tools.push(...attachmentTools(threadId, threadAttachmentIds(threadId), localOnly && !localVision));
+      if (!localOnly) tools.push(commandTool(agentWorkingDirectory(bot)));
+      const closers: Array<() => Promise<void>> = [];
+      try {
+        const connection = instanceConfigs(cfg)[bot.modelSelection.instanceId];
+        if (connection?.driver === "jinx") tools.push(...await jinxActionTools(decodeJinxConnection(connection.config), signal));
+        if (!localOnly && integrations.agents) {
+          const peers = await actionMcp(integrations.agents, "agents", "read", signal);
+          tools.push(...peers.tools.map(t => ({ ...t, effect: "read" as const }))); closers.push(peers.close);
+        }
+        if (!localOnly && integrations.composio) {
+          try { tools.push(...await composio.actionAppTools(cfg, signal)); }
+          catch { tools.push({name:"harbor_apps_status",description:"Explain why connected-app tools are currently unavailable.",effect:"read",inputSchema:{type:"object",properties:{},additionalProperties:false},execute:async()=>({available:false,reason:"The app connector could not be reached for this task. Local tools remain available. Check Plugins and try a new task."})}); }
+        }
+        if (integrations.localComputer) {
+          if(hostActionOwner) throw new Error("Another agent is using this computer. Wait for it to finish.");
+          hostActionOwner=turnId;
+          closers.push(async()=>{if(hostActionOwner===turnId)hostActionOwner=null;});
+          const computer=await actionMcp(integrations.localComputer,"computer","computer",signal);
+          tools.push(...computer.tools);closers.push(computer.close);
+        }
+        tools.push({ name:"harbor_list_routines", description:"List this agent's locally stored scheduled tasks.", effect:"read", inputSchema:{type:"object",properties:{},additionalProperties:false},execute:async()=>routines?.listRoutines().filter(r=>r.botId===bot.id)??[] });
+        tools.push({ name:"harbor_create_routine",description:"Create a recurring local task for this agent. The owner approves the exact schedule. Agent Harbor must be running at the scheduled time. Times use this Mac's timezone.",effect:"schedule",inputSchema:{type:"object",properties:{name:{type:"string"},prompt:{type:"string"},time:{type:"string",pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]$"},weekdays:{type:"array",items:{type:"integer",minimum:0,maximum:6},minItems:1}},required:["name","prompt","time","weekdays"],additionalProperties:false},execute:async(args)=>{if(!routines)throw new Error("Scheduler is unavailable");return routines.create({name:String(args.name),prompt:String(args.prompt),botId:bot.id,runOn:"maus",enabled:true,schedule:{type:"daily",time:String(args.time),weekdays:args.weekdays as number[]}});} });
+        return {tools,close:async()=>{for(const close of closers.reverse())await close();}};
+      } catch(error) { for(const close of closers.reverse())await close(); throw error; }
+    }
+  }).run(turnId,signal,operation) };
 }
 
 function openRouterServerToolTurn(
@@ -1134,6 +1252,8 @@ async function startTurn(
   void (async () => {
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
+      const privateRoom = store.groupByThread(threadId);
+      if (instance.driverKind === "localModel" && privateRoom?.memberIds.some(id => {const peer=store.bot(id);return peer && registry.get(peer.modelSelection.instanceId)?.driverKind !== "localModel";})) throw new Error("A private local agent can only work in rooms where every member uses a local model. Use a direct conversation for private notes.");
       // Public web research is independent of computer access. OpenRouter
       // executes this server-side with the existing account; native CLI
       // engines retain their own built-in search behavior unchanged.
@@ -1149,6 +1269,7 @@ async function startTurn(
       // OpenRouter models still take the unchanged text-only path even when
       // an old persisted computer value happens to say "vm".
       const wants = opts?.runOn === "cloud" ? "cloud" : (bot.computer ?? "off");
+      if(instance.driverKind === "localModel" && wants !== "off") throw new Error("Local private mode uses file tools only. Set Computer to Off, or choose a cloud model for desktop and network actions.");
       const toolTurnStartedNs = process.hrtime.bigint();
       let openRouterMetadataCurrent = true;
       let openRouterToolTurnTimeoutMs = DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS.turnTimeoutMs;
@@ -1201,7 +1322,8 @@ async function startTurn(
       if (openRouterPreflightRequired && !openRouterLocalVm) {
         localVmProductState(bot.id, "metadata-unverified");
       }
-      const routedDestination = instance.driverKind === "openrouter"
+      const serverActions = ["openrouter", "localModel", "jinx"].includes(instance.driverKind);
+      const routedDestination = instance.driverKind === "openrouter" && wants === "vm"
         ? openRouterTurnDestination(wants, openRouterLocalVm)
         : wants;
       // the user's connected apps, but only to a driver that can mount
@@ -1217,7 +1339,7 @@ async function startTurn(
       // Legacy unset values fail closed. Host desktop control is available
       // only after the user explicitly selects "This computer".
       const { computerUse, executionMode } = instance.adapter.capabilities;
-      const mountsComputerMcp = computerUse === "mcp";
+      const mountsComputerMcp = computerUse === "mcp" || serverActions;
       const canUseLocalVm = providerSupportsLocalVm(instance.adapter.capabilities);
       const mountsCloudComputer = computerUse === "mcp" || computerUse === "native";
       let previewBoxId: string | null = null;
@@ -1313,7 +1435,13 @@ async function startTurn(
         store.bots.filter((b) => b.id !== bot.id && !b.hidden).length > 0
       ) {
         integrations.agents = agentsIntegration(bot.id, threadId, commsDepth);
+        if (!serverActions && threadAttachmentIds(threadId).length) integrations.agents.env = { ...integrations.agents.env, OMB_ATTACHMENTS: "1" };
       }
+      if (!serverActions && !integrations.agents && instance.adapter.capabilities.agentsMcp && threadAttachmentIds(threadId).length) {
+        integrations.agents = agentsIntegration(bot.id, threadId, MAX_COMMS_DEPTH);
+        integrations.agents.env = { ...integrations.agents.env, OMB_ATTACHMENTS: "1" };
+      }
+      if (serverActions && !openRouterLocalVm) integrations.serverToolTurn = generalActionTurn(bot, threadId, integrations, instance.driverKind === "localModel");
       // @mentions in the user's message (the composer's tagging UI) become
       // an explicit delegation nudge — the agent still does the ask_bot call
       // itself, so the harness stays the single owner of turns/permissions
@@ -1331,7 +1459,7 @@ async function startTurn(
 
       await instance.adapter.sendTurn({
         threadId,
-        text: turnText,
+        text: turnText + await attachmentContext(threadId, threadAttachmentIds(threadId), executionMode === "local-process" && !serverActions ? workingDirectory : undefined),
         model,
         effort,
         // a rewound thread never resumes the abandoned branch's session
@@ -1341,6 +1469,8 @@ async function startTurn(
         transcript,
         system:
           persona +
+          (instance.driverKind === "localModel" ? " You are running on a local model. Use local file tools to save and retrieve notes. Cloud apps, cloud delegation, and provider web search are unavailable in this mode. Never claim an external action happened without a tool result." : "") +
+          (serverActions && !openRouterLocalVm ? " You have Harbor file tools for your permitted folder and local scheduling tools. Use them to perform requested work and verify saved results. Keep durable notes in Markdown files and read relevant notes when needed. Do not claim to have saved or scheduled anything without a successful tool result." : "") +
           (executionMode === "local-process" && !openRouterLocalVm
             ? bot.hostAccess === true
               ? ` The user explicitly enabled host-file access for this bot. Your working directory is ${workingDirectory}. Continue to use the normal approval flow for sensitive actions.`
@@ -1579,7 +1709,21 @@ async function runGroupMemberTurn(
     .filter(Boolean)
     .join("\n");
 
-  const text = `${serializeRoomContext(group.threadId, userName)}\n\n(Reply to the conversation above as ${bot.name}.)`;
+  let text = `${serializeRoomContext(group.threadId, userName)}\n\n(Reply to the conversation above as ${bot.name}.)`;
+
+  const groupAttachmentIds = threadAttachmentIds(group.threadId);
+  const groupIntegrations: NonNullable<import("./contracts.ts").SendTurnInput["integrations"]> = {};
+  try {
+    text += await attachmentContext(group.threadId, groupAttachmentIds);
+    if (groupAttachmentIds.length) {
+      if (["openrouter", "localModel", "jinx"].includes(instance.driverKind)) {
+        groupIntegrations.serverToolTurn = actionTurn({ tools: async () => ({ tools: attachmentTools(group.threadId, groupAttachmentIds, instance.driverKind === "localModel" && !await localModelSupportsVision(bot.modelSelection.model, (instanceConfigs(cfg)[bot.modelSelection.instanceId]?.config as {url?:string})?.url)) }), authorize: (tool, call, signal) => actionApprovals.authorize(bot, group.threadId, tool, call, signal, isUnattended(bot.id)) });
+      } else if (instance.adapter.capabilities.agentsMcp) {
+        groupIntegrations.agents = agentsIntegration(bot.id, group.threadId, MAX_COMMS_DEPTH);
+        groupIntegrations.agents.env = { ...groupIntegrations.agents.env, OMB_ATTACHMENTS: "1" };
+      }
+    }
+  } catch (error) { text += "\nAttachment could not be prepared: " + (error instanceof Error ? error.message : "unknown error"); }
 
   // run the turn and wait for it to settle, folding the reply text so a
   // chained @mention can be routed afterwards
@@ -1600,7 +1744,7 @@ async function runGroupMemberTurn(
     });
     const timer = setTimeout(finish, 5 * 60_000);
     instance.adapter
-      .sendTurn({ threadId: group.threadId, text, system })
+      .sendTurn({ threadId: group.threadId, text, system: system + "\n" + attachmentInstructions, model: bot.modelSelection.model, integrations: groupIntegrations })
       .catch((err) => {
         const failure = store.appendMessage(group.threadId, {
           role: "bot",
@@ -1666,6 +1810,8 @@ function startGroupTurn(groupId: string, text: string) {
 
 function configStatus() {
   return {
+    jinx: cfg.jinx ? { configured: true, host: cfg.jinx.host } : { configured: false },
+    localModel: { url: cfg.localModel?.url ?? "http://127.0.0.1:1234/v1" },
     xai: { configured: Boolean(cfg.xai?.key) },
     openrouter: {
       configured: Boolean(cfg.openrouter?.apiKey),
@@ -1708,11 +1854,11 @@ async function reloadProviders() {
 // ── HTTP plumbing ─────────────────────────────────────────────────────
 function json(res: ServerResponse, status: number, body: unknown) {
   const data = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff" });
   res.end(data);
 }
 
-function readBody(req: IncomingMessage): Promise<any> {
+function readBody(req: IncomingMessage, limit = 1_000_000): Promise<any> {
   return new Promise((resolve, reject) => {
     let data = "";
     let bytes = 0;
@@ -1726,7 +1872,7 @@ function readBody(req: IncomingMessage): Promise<any> {
     req.on("data", (c) => {
       if (done) return;
       bytes += typeof c === "string" ? Buffer.byteLength(c) : c.length;
-      if (bytes > 1_000_000) {
+      if (bytes > limit) {
         // Keep draining the socket, but stop retaining attacker-controlled
         // bytes. Destroying the request here prevents the caller from
         // receiving the useful 413 response.
@@ -1787,6 +1933,7 @@ function isAllowedOrigin(origin: string | undefined | null): boolean {
   }
 }
 
+let activeAttachmentUploads = 0;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
@@ -1806,11 +1953,26 @@ const server = createServer(async (req, res) => {
     // The agents-proxy (spawned inside a bot's agent process) calls these to
     // discover peers and hand a message to one. Not part of the public API.
     if (path.startsWith("/api/internal/")) {
-      if (req.headers.authorization !== `Bearer ${COMMS_TOKEN}`) {
+      // Identity comes from the token the proxy was spawned with. The body's
+      // botId/fromBotId/fromThreadId/depth fields are ignored on purpose.
+      const session = commsSession(req.headers.authorization);
+      if (!session) {
         return json(res, 401, { error: "unauthorized" });
       }
+      if (method === "POST" && path === "/api/internal/read-attachment") {
+        const body = await readBody(req);
+        const bot = store.bot(session.botId), threadId = session.threadId;
+        const group = store.groupByThread(threadId);
+        if (!bot || (!store.taskByThread(bot.id, threadId) && !group?.memberIds.includes(bot.id))) return json(res, 403, { error: "Conversation does not belong to this agent" });
+        const localOnly = registry.get(bot.modelSelection.instanceId)?.driverKind === "localModel";
+        const localVision = localOnly && await localModelSupportsVision(bot.modelSelection.model, (instanceConfigs(cfg)[bot.modelSelection.instanceId]?.config as {url?:string})?.url);
+        const tool = attachmentTools(threadId, threadAttachmentIds(threadId), localOnly && !localVision)[0];
+        if (isUnattended(bot.id) && !bot.autoRun) return json(res, 403, { error: "Unattended file reading is not enabled" });
+        const result = await tool.execute(body.arguments ?? {}, AbortSignal.timeout(300_000));
+        return json(res, 200, result);
+      }
       if (method === "GET" && path === "/api/internal/agents") {
-        const self = url.searchParams.get("self");
+        const self = session.botId;
         // title/description included so a "chief of staff"-style bot can
         // judge the team (who does what, who has no job description yet)
         const bots = store.bots
@@ -1827,10 +1989,10 @@ const server = createServer(async (req, res) => {
       }
       if (method === "POST" && path === "/api/internal/ask-bot") {
         const body = await readBody(req);
-        const fromBotId = String(body.fromBotId ?? "");
+        const fromBotId = session.botId;
         const toBotId = String(body.toBotId ?? "");
         const message = String(body.message ?? "").trim();
-        const depth = Number(body.depth ?? 0) || 0;
+        const depth = session.depth;
         if (!toBotId || !message) return json(res, 400, { error: "toBotId and message required" });
         if (toBotId === fromBotId) return json(res, 400, { error: "a bot cannot message itself" });
         if (depth >= MAX_COMMS_DEPTH) return json(res, 200, { error: "message chains are limited to one hop" });
@@ -1843,7 +2005,8 @@ const server = createServer(async (req, res) => {
         // hard refusal — every peer turn has an accountable sender.
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
-        const fromThreadId = String(body.fromThreadId ?? from.threadId);
+        if (registry.get(target.modelSelection.instanceId)?.driverKind === "localModel" && registry.get(from.modelSelection.instanceId)?.driverKind !== "localModel") return json(res,403,{error:"Private local agents cannot return notes to cloud agents. Use a direct local conversation."});
+        const fromThreadId = session.threadId;
         if (!store.taskByThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
         }
@@ -1895,18 +2058,20 @@ const server = createServer(async (req, res) => {
       // turn.completed. Returns immediately (the caller does not wait).
       if (method === "POST" && path === "/api/internal/delegate-bot") {
         const body = await readBody(req);
-        const fromBotId = String(body.fromBotId ?? "");
+        const fromBotId = session.botId;
         const toBotId = String(body.toBotId ?? "");
         const message = String(body.message ?? "").trim();
         const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : undefined;
-        const depth = Number(body.depth ?? 0) || 0;
+        const depth = session.depth;
         if (!toBotId || !message) return json(res, 400, { error: "toBotId and message required" });
         const from = store.bot(fromBotId);
         if (!from) return json(res, 404, { error: "no such bot" });
-        const fromThreadId = String(body.fromThreadId ?? from.threadId);
+        const fromThreadId = session.threadId;
         if (!store.taskByThread(from.id, fromThreadId)) {
           return json(res, 403, { error: "source thread does not belong to sender" });
         }
+        const privateTarget=store.bot(toBotId);
+        if(privateTarget && registry.get(privateTarget.modelSelection.instanceId)?.driverKind === "localModel" && registry.get(from.modelSelection.instanceId)?.driverKind !== "localModel") return json(res,403,{error:"Private local agents cannot accept cloud delegation. Use a direct local conversation."});
         const result = queueDelegation(
           commsBus,
           from,
@@ -2344,6 +2509,13 @@ const server = createServer(async (req, res) => {
       for (const key of ["name", "title", "description", "systemInstructions", "notifications", "modelSelection", "unread", "computer", "openrouterLocalVm", "color", "mascotExpression", "pinned", "hidden", "speakReplies", "voice"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
+      if (body.profilePicture !== undefined) {
+        const picture = body.profilePicture;
+        if (picture !== null && (typeof picture !== "string" || picture.length > 400_000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(picture))) {
+          return json(res, 400, { error: "Choose a profile picture using the image picker." });
+        }
+        patch.profilePicture = picture;
+      }
       if (body.systemInstructions !== undefined) {
         if (typeof body.systemInstructions !== "string") {
           return json(res, 400, { error: "systemInstructions must be text" });
@@ -2374,6 +2546,21 @@ const server = createServer(async (req, res) => {
       if (body.autoApprove !== undefined) {
         if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
         patch.autoApprove = body.autoApprove;
+      }
+      if (body.workspaceFolder !== undefined) {
+        if (typeof body.workspaceFolder !== "string") return json(res,400,{error:"Workspace folder must be text"});
+        const folder=body.workspaceFolder.trim();
+        if(folder && !isAbsolute(folder)) return json(res,400,{error:"Choose a full folder path"});
+        if(folder && (!statSync(folder).isDirectory() || folder.length>4000)) return json(res,400,{error:"Choose an existing folder"});
+        patch.workspaceFolder=folder ? realpathSync(folder) : "";
+      }
+      if(body.desktopAuto !== undefined){
+        if(typeof body.desktopAuto!=="boolean")return json(res,400,{error:"Desktop permission must be true or false"});
+        patch.desktopAuto=body.desktopAuto;
+      }
+      if (body.autoRun !== undefined) {
+        if(typeof body.autoRun!=="boolean")return json(res,400,{error:"Scheduled work permission must be true or false"});
+        patch.autoRun=body.autoRun;
       }
       if (body.hostAccess !== undefined) {
         if (typeof body.hostAccess !== "boolean") return json(res, 400, { error: "hostAccess must be true or false" });
@@ -2460,6 +2647,28 @@ const server = createServer(async (req, res) => {
       broadcast({ kind: "message.patch", threadId: bot.threadId, message: patched });
       return json(res, 200, { message: patched });
     }
+    m = path.match(/^\/api\/attachments\/([a-f0-9-]{36})\/download$/);
+    if (m && method === "GET") {
+      const threadId = url.searchParams.get("threadId") ?? "";
+      const attachment = await loadAttachment(m[1], threadId);
+      const bytes = readFileSync(join(ATTACHMENTS_DIR, attachment.id, "original" + attachment.extension));
+      res.writeHead(200, { "content-type": "application/octet-stream", "x-content-type-options": "nosniff", "cache-control": "no-store", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name)}`, "content-length": bytes.length });
+      return res.end(bytes);
+    }
+    if (path === "/api/attachments" && method === "POST") {
+      if (activeAttachmentUploads >= 2) return json(res, 429, { error: "Two files are already being prepared. Try again shortly." });
+      activeAttachmentUploads++;
+      try {
+        const body = await readBody(req, Math.ceil(ATTACHMENT_LIMIT * 4 / 3) + 10000);
+        const threadId = String(body.threadId ?? "");
+        if (!store.bots.some(b => store.taskByThread(b.id, threadId)) && !store.groupByThread(threadId)) return json(res, 404, { error: "Open a conversation before attaching files." });
+        if (typeof body.name !== "string" || typeof body.data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.data)) return json(res, 400, { error: "Invalid file upload" });
+        const saved = await saveAttachment(threadId, body.name, Buffer.from(body.data, "base64"));
+        return json(res, 201, { attachment: publicAttachment(saved) });
+      } catch (error) {
+        return json(res, (error as { status?: number }).status ?? 400, { error: error instanceof Error ? error.message : "Could not prepare this attachment" });
+      } finally { activeAttachmentUploads--; }
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/messages$/);
     if (m && method === "POST") {
       const body = await readBody(req);
@@ -2522,6 +2731,7 @@ const server = createServer(async (req, res) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       const body = await readBody(req);
+      if(actionApprovals.resolve(bot.threadId,body.requestId,body.behavior))return json(res,200,{ok:true});
       const localVmDecision = resolveLocalVmApproval(bot.threadId, body.requestId, body.behavior);
       if (localVmDecision === "resolved") return json(res, 200, { ok: true });
       if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
@@ -2546,6 +2756,7 @@ const server = createServer(async (req, res) => {
     if (m && method === "POST") {
       const threadId = m[1];
       const body = await readBody(req);
+      if(actionApprovals.resolve(threadId,body.requestId,body.behavior))return json(res,200,{ok:true});
       const localVmDecision = resolveLocalVmApproval(threadId, body.requestId, body.behavior);
       if (localVmDecision === "resolved") return json(res, 200, { ok: true });
       if (localVmDecision === "rejected") return json(res, 409, { error: "Local VM approval is invalid or expired" });
@@ -2737,9 +2948,11 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "opencodeGo.apiKey must be a string" });
       }
       const patch: Record<string, object> = {};
-      for (const key of ["xai", "openrouter", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
+      for (const key of ["xai", "openrouter", "localModel", "jinx", "composio", "box", "opencodeGo", "tts", "profile"] as const) {
         if (body[key] && typeof body[key] === "object") patch[key] = body[key];
       }
+      if (patch.localModel) patch.localModel = { url: localModelUrl((patch.localModel as {url?:unknown}).url) };
+      if (patch.jinx) patch.jinx = decodeJinxConnection(patch.jinx);
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
       // check a box token against the provider before storing it: a
       // rejected token used to save happily and only surface as a 401 in
@@ -2865,13 +3078,14 @@ const server = createServer(async (req, res) => {
         const file = realpathSync(join(STATIC_ROOT, path === "/" ? "/index.html" : path));
         if (!file.startsWith(STATIC_ROOT + sep)) throw new Error("outside static root");
         const data = readFileSync(file);
-        res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+        const type = MIME[extname(file)] ?? "application/octet-stream";
+        res.writeHead(200, { "content-type": type, ...(type === "text/html" ? UI_HEADERS : {}) });
         return res.end(data);
       } catch {
         // SPA fallback
         try {
           const data = readFileSync(join(STATIC_ROOT, "index.html"));
-          res.writeHead(200, { "content-type": "text/html" });
+          res.writeHead(200, { "content-type": "text/html", ...UI_HEADERS });
           return res.end(data);
         } catch {
           /* fall through to 404 */
@@ -2882,7 +3096,12 @@ const server = createServer(async (req, res) => {
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
     const status = (e as any)?.status ?? 500;
-    return json(res, status, { error: e instanceof Error ? e.message : String(e) });
+    // Messages reach the UI verbatim, and an unexpected failure may quote a
+    // provider response, URL or header. Scrub credential-shaped text before
+    // it leaves, and leave a trace in server.log for anything unexpected.
+    const message = redactText(e instanceof Error ? e.message : String(e));
+    if (status >= 500) console.error(`${method} ${path} → ${status}: ${message}`);
+    return json(res, status, { error: message });
   }
 });
 

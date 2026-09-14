@@ -1,129 +1,124 @@
 # Current handoff
 
-Updated August 29, 2026 at the local personal-capabilities checkpoint.
+Updated September 7, 2026 after the local actions, Jinx, profile and attachment
+work, followed by documentation reconciliation.
 
-## Executive status
+## Repository and runtime state
 
-- **Repository:** `/Users/lauraflorey/projects/agent-harbor`
-- **Current branch:** `codex/personal-action-capabilities`
-- **Current implementation commit:**
-  `29a679a82dc4226c152dee87f6f3aad4adea9ede`
-- **Remote state:** the branch has no tracking reference and does not exist on
-  the private origin. `origin/main` remains at
-  `3b5e23b2be95b1952e09b260f385a890d1610c53`.
-- **Pull requests and releases:** none open or published when this handoff was
-  refreshed.
-- **Documentation state:** this handoff and its companion documentation refresh
-  are intentionally uncommitted for review.
-- **Runtime state:** the unified development launcher is running the committed
-  `29a679a` checkpoint. No restart was performed for this documentation work.
-- **Release state:** not merged, packaged for release, signed, notarized,
-  published, or installed as a release.
+| Item | Observed state |
+|---|---|
+| Repository | `/Users/lauraflorey/projects/agent-harbor` |
+| Branch | `codex/personal-action-capabilities` |
+| HEAD | `4403d90ef5ac080e47bf1781e7077f00d1be00f8` |
+| Package version | `0.1.21` |
+| Working tree | Substantial modified and untracked implementation/documentation files; recent work is uncommitted |
+| Runtime | Unified source development app on Laura's Mac; API, UI and webhook health endpoints responded successfully during this documentation refresh |
+| Remote | Branch has an upstream tracking configuration; remote contents and repository visibility were not freshly checked |
+| Promotion | No commit, push, merge, new package, installer promotion or recovery test performed for the recent work |
+| Product scope | Private personal use; no public release planned |
 
-The pre-existing untracked `.agents/` directory is owner material and is not
-part of the current change. In particular, its Windows release skill must not
-be modified or included accidentally.
+Preserve the existing worktree, including the owner `.agents/` directory. Do not
+reset it to HEAD or treat HEAD as containing the September implementation.
+The documentation refresh changes documentation only and does not restart the app.
 
-## What is implemented
+## Current capabilities
 
-The current branch contains the complete Issue #11 Story 1–6 history, the
-Local VM acceptance repair, the model-picker mouse-wheel scroll fix, and the
-personal-use capability simplification.
+- OpenRouter and Jinx direct chats use Harbor's bounded action loop for scoped
+  notes, approved commands, connected apps where available, schedules and peers.
+- Host desktop actions use the selected **This computer** destination and the
+  installed CuaDriver. Standing attended permission is owner consent to desktop
+  interactions, not a consequence classifier. The isolated Local VM remains a
+  separate route with its own controls and unfinished acceptance.
+- A loopback local-model connection supports notes, schedules and attachments.
+  Harbor excludes cloud search/apps/delegation, commands and desktop from that
+  mode. Direct local chat disables cloud speech in the UI; group voice and the
+  generic TTS endpoint have a privacy gap noted below. Text-only models can read extraction/transcripts; local vision
+  requires explicit selected-model capability metadata.
+- Jinx connects over SSH to the existing Mini service and memory pipeline.
+  Current-context retrieval, cross-task recall, archive receipts, teammate
+  discovery and an actual teammate reply have been exercised.
+- Profile images are local; emoji messages and user-added reactions are available.
+- Attachments support DOC/DOCX/RTF, XLS/XLSX/CSV, PDF, text, images, audio and video.
+  Speech is transcribed locally. Video understanding uses selected frames and
+  speech; visual content requires a compatible model.
 
-The latest checkpoint adds:
+API-model rooms receive attachment tools, not the full direct-chat action set.
+Jinx sees teammate metadata and busy/idle status, not automatic access to all
+conversations. Private local agents reject cloud delegation.
 
-- bounded provider-hosted web research to OpenRouter turns without granting a
-  computer destination: at most 4 searches, 5 results per search, 12 results
-  total, and low search context;
-- one application-owned routine-action approval for an attended Local VM task,
-  while consequential actions still require a fresh one-attempt approval;
-- longer fixed monotonic limits: 20 minutes per turn, 10 minutes for approval,
-  90 seconds per tool call beginning after approval, 20 seconds per MCP
-  request, and 30 seconds per execution;
-- independent owner-authored system instructions for every agent, bounded to
-  20,000 characters and used in direct conversations and multi-agent rooms
-  without changing that agent's provider, model, connected apps, permissions,
-  or computer destination; and
-- the model-picker mode-list mouse scroll repair from parent commit `83ddc268`.
+## Personal setup observed during implementation
 
-No existing provider, room, multi-agent behavior, connected app, permission,
-or host/cloud destination was removed or narrowed. OpenRouter's exact Terra
-allowlist controls only the new Local VM loop; other available OpenRouter
-models remain usable for ordinary text chat and bounded web research.
+Jinx remains on the Mac Mini behind SSH alias `jinx-mini`; her bridge is inside
+the existing process and bound to Mini loopback port 8768. Credentials and the
+bridge token remain there. Her cloud model and fallback were not replaced.
+Open Brain and other pre-existing remote archives keep their existing locations.
 
-## Verification attached to `29a679a`
+The current Mac has an Obsidian vault under `~/Agent Harbor/`, with separate
+`Private notes` and `Shared work` folders. Harbor Local uses local inference;
+Harbor Assistant uses OpenRouter. Existing Jinx vaults were not relocated.
+LM Studio's installed GPT-OSS model was verified for text/transcripts and Qwen
+3.5 for image inspection; the default Harbor Local model was left unchanged.
+These are dated setup observations, not promises that services remain reachable.
 
-- focused capability tests: 156 passed;
-- full suite: 78 files, 722 passed, 8 skipped;
-- updater tests: 12 passed;
-- type checking: passed;
-- production build: passed;
-- Electron syntax checks: passed; and
-- diff-integrity, generated-artifact, and secret scans: passed.
+The Jinx integration's original-code backup is on the Mini under
+`~/.jinx-harbor-backups/20260907-162357/`. It is not a complete memory backup.
+See [Jinx deployment and memory](../jinx-connection.md) before changing that system.
 
-The development runtime was restarted after those checks through
-`pnpm dev:all`. At 13:05 CDT on August 29, the harness and webhook health
-endpoints responded successfully, the interface returned HTTP 200, the
-Electron GPU/network/renderer helpers were present, and no `mcp-guardian.ts`
-or startup cascade appeared. The preserved launcher log is:
+## Verification evidence from September 7
 
-`/tmp/agent-harbor-dev-20260829T130028-0500.log`
+| Check | Result and scope |
+|---|---|
+| Attachment-era full suite | 85 files passed; 752 tests passed, 8 skipped; 12 updater tests passed |
+| Follow-up focused checks | 4 files, 18 tests passed after attachment follow-ups |
+| Final local-model compatibility checks | 2 files, 53 tests passed after the initial-assistant-message replay fix |
+| Final production build | Passed, including TypeScript checks; bundle-size warning remains |
+| Electron syntax and diff integrity | Passed during implementation |
+| Live Jinx attachment review | Correct document text, spreadsheet formula/cached total, PDF text and scanned page, image, audio speech and video frame/speech from synthetic fixtures |
+| Live local-model review | GPT-OSS read spreadsheet and speech transcript; Qwen inspected an image through the attachment tool |
+| Attachment mechanics | Downloaded original matched source bytes; legacy DOC extraction passed; temporary validation agents/files were removed |
+| Profile UI | Choose picture, save/reload and return to mascot exercised |
+| Current health | API, interface and dedicated webhook receiver returned HTTP 200 during this documentation refresh |
 
-That is a local source-runtime baseline, not release evidence.
+The full suite preceded the final small compatibility changes; the later focused
+checks and build covered those changes. Do not call the 752-test result a full
+suite rerun of the final exact worktree. No new code tests were needed for the
+documentation-only refresh.
 
-## Live acceptance state
+Temporary implementation evidence, if still present on this Mac:
 
-An earlier controlled Story 6 run at checkpoint `cf11c7c` proved one complete
-approval-gated Local VM tool path: Terra requested a discovered tool, Laura
-allowed it once, the tool ran inside the isolated Local VM, and the model
-returned a final description. The broader screenshot, controlled-page click,
-scroll, typing, consequential-action, interruption, restart-cleanup, Computer
-Off, and global-switch rollback sequence remains incomplete.
+- `/tmp/agent-harbor-attachments-all-tests.log`
+- `/tmp/agent-harbor-attachments-followup-tests.log`
+- `/tmp/agent-harbor-local-template-tests.log`
+- `/tmp/agent-harbor-attachments-build.log`
+- `/tmp/agent-harbor-attachments-electron-check.log`
+- `/tmp/agent-harbor-attachments-runtime.log`
 
-After later model changes, the product also displayed **“Local VM lease ended
-before the turn completed.”** That failure has not been resolved or reproduced
-against `29a679a`. Do not treat the longer limits or approval-policy change as
-proof that the lease problem is fixed.
+These temporary logs are not a durable backup or committed acceptance artifact.
 
-The new OpenRouter web-research request shape, the updated routine-task
-approval flow, and per-agent system instructions have automated coverage and a
-healthy core runtime. No live credentialed OpenRouter request or complete
-post-change Local VM acceptance run was made as part of this documentation
-refresh.
+## Remaining gaps and next work
 
-Docker and the Local VM were not inspected or modified during this refresh, so
-their present state is deliberately unverified. Jinx was not accessed and
-remains completely outside this repository and handoff.
+Laura is trying the app before deciding on Grokbot data migration. No Grokbot
+records were imported or deleted. Remote Harbor access over Tailscale is also
+future work. The app API remains loopback-only and unauthenticated.
 
-## Known boundaries
+The complete experimental Local VM browser-action and recovery sequence remains
+unfinished. Lease heartbeat and approval calibration are implemented, but their
+live resolution of the earlier lease-expiry failure has not been established.
+Do not broaden its acceptance claim based on host desktop or media results.
 
-- The OpenRouter Local VM feature is globally off by default and independently
-  off for each agent by default.
-- Only exact `openai/gpt-5.6-terra`, confirmed by current account metadata, can
-  enter the new OpenRouter Local VM loop.
-- The new loop is initially direct-agent only. Existing multi-agent rooms and
-  their ordinary provider behavior remain available.
-- Web research is provider-hosted and does not grant Local VM, host Mac, cloud
-  computer, connected-app, file, peer-agent, credential, or environment
-  access.
-- System instructions are prompt context, not approval or execution authority.
-- Passwords, MFA, CAPTCHAs, and other protected input stay manual in the
-  visible destination and must not be put into chat.
+Source inspection during the documentation refresh found that group calls do
+not apply the direct-chat local-model speech guard, and the generic TTS endpoint
+does not bind requests to a bot's privacy mode. With ElevenLabs configured, these
+paths can send supplied text to cloud speech. Use direct text for private local
+work until the UI and server boundaries are completed. No runtime changes or
+cloud speech requests were made in this review. See [voice](../voice-mode.md).
 
-## Safest next step
+Media tools and the speech model are installed on this Mac. New parser/native
+runtime dependencies and media tooling have not been accepted in a fresh-machine
+installer. Other-platform validation of these additions, backup restoration,
+rollback and personal installation promotion remain open.
 
-1. Review this documentation-only diff and confirm that it matches the desired
-   personal-app policy.
-2. If approved, commit this documentation refresh as a focused second commit,
-   then push the current branch so the implementation and its handoff remain
-   linked; do not merge or release merely because the automated suite passed.
-3. Then run one controlled, non-sensitive acceptance sequence against the exact
-   pushed commit. Start with bounded OpenRouter web research, verify system
-   instructions in a direct conversation and a room, and only then prepare the
-   isolated Local VM and test one routine task.
-4. If the lease error recurs, preserve the first error and lifecycle evidence
-   and diagnose it before retrying or broadening access.
-
-The detailed release gates are in [Deployment and release](../deployment.md),
-and the remaining Local VM acceptance sequence is in
-[OpenRouter Local VM tool loop](openrouter-local-vm-tool-loop.md).
+Next priorities are real-use feedback, then an explicit migration decision and
+a recoverable personal checkpoint. Consult [Roadmap](../../ROADMAP.md),
+[installation and recovery](../deployment.md), and the scoped
+[Local VM acceptance plan](openrouter-local-vm-tool-loop.md).

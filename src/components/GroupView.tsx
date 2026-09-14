@@ -1,3 +1,4 @@
+import { MessageAttachments, withoutAttachmentReferences } from "./MessageAttachments";
 // A room: several bots + you in one shared thread. The sidebar and call view
 // carry the personality; avatars inside the room stay still so a busy group
 // does not become a wall of competing motion. Plain messages go to the room's
@@ -37,6 +38,7 @@ function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: st
   return (
     <div className="mt-1 flex items-center gap-1.5 pl-0.5">
       <MausAvatar
+        profilePicture={bot?.profilePicture}
         color={(bot?.color ?? color) as Bot["color"]}
         state={normalizeState(bot?.mascotExpression) ?? "happy"}
         size={16}
@@ -97,7 +99,7 @@ const Transcript = memo(function Transcript({
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
-                  {user ? m.text : <ChatMarkdown text={m.text} />}
+                  {user ? <><MessageAttachments text={m.text ?? ""} threadId={group.threadId} />{withoutAttachmentReferences(m.text ?? "")}</> : <ChatMarkdown text={m.text} />}
                 </div>
                 {!user && <ReactionBar threadId={group.threadId} message={m} />}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">
@@ -252,7 +254,7 @@ export function GroupView({ group }: { group: Group }) {
               )}
             >
               <MausAvatar
-                color={b.color}
+                profilePicture={b.profilePicture} color={b.color}
                 state={normalizeState(b.mascotExpression) ?? "happy"}
                 size={24}
                 animated={false}
@@ -330,7 +332,7 @@ export function GroupView({ group }: { group: Group }) {
                 {members.slice(0, 3).map((b) => (
                   <MausAvatar
                     key={b.id}
-                    color={b.color}
+                    profilePicture={b.profilePicture} color={b.color}
                     state="happy"
                     size={44}
                     motion="none"

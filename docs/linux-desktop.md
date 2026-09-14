@@ -1,5 +1,10 @@
 # Ubuntu Desktop
 
+> Platform baseline reference. September 7's attachment, native parser and media
+> additions were verified on Laura's Mac source runtime, not in a fresh Ubuntu
+> package. The capabilities below describe the earlier platform baseline; use
+> [current handoff](plans/current-handoff.md) for recent acceptance evidence.
+
 Agent Harbor has an Ubuntu 24.04 LTS x86_64 desktop beta. The Electron package embeds the harness server, so
 installed builds do not require Node, pnpm, Swift, or a terminal at runtime.
 
