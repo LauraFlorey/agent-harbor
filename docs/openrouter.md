@@ -106,22 +106,16 @@ details to [OpenRouter's documentation](https://openrouter.ai/docs/quickstart).
 
 ## Verification status
 
-The current personal-use implementation is commit `29a679a`, with the matching
-documentation checkpoint at `4403d90`.
-Its focused tests, full suite, updater tests, type checking, production build,
-Electron checks, and integrity checks passed, and the core development runtime
-started cleanly. The private branch is pushed and tracks
-`origin/codex/personal-action-capabilities`; it is not merged into `origin/main`
-or installed as a promoted personal build. No public release is planned.
+The Local VM tool loop, lease heartbeat, and routine/consequential split live on
+public `main` (version `0.1.21`). CI covers the automated suite. **Live Local VM
+acceptance is still open.** An earlier controlled run at `cf11c7c` proved one
+approval-gated tool call; the full click/scroll/type/interrupt/cleanup sequence
+has not been re-accepted. A later turn reported **“Local VM lease ended before
+the turn completed.”** The turn now renews its lease on progress in code; that
+is not a live proof the failure is gone.
 
-One earlier controlled run proved an approval-gated Terra tool call inside the
-Local VM, but the complete controlled-page acceptance sequence remains open. A
-later turn also reported **“Local VM lease ended before the turn completed”**;
-that lifecycle failure has not yet been resolved against the current
-checkpoint. The provider-hosted web-research request and revised routine-task
-approval policy have automated coverage but have not received a live
-credentialed acceptance run in this documentation update.
+No signed installer or GitHub Release exists. Source clone is the supported path.
 
-See [Current handoff](plans/current-handoff.md) for the exact repository and
-runtime state, and [Private installation, packaging, and recovery](deployment.md)
-for the gates that separate source verification from an installed personal checkpoint.
+See [Current handoff](plans/current-handoff.md) for branch and PR state, and
+[Installation, packaging, and recovery](deployment.md) for the gates that
+separate source verification from an installed checkpoint.

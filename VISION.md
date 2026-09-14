@@ -1,9 +1,7 @@
-> Public-source preparation: the owner has approved preparing Agent Harbor for a public repository. Personal data and integrations remain private. Earlier private-product language below records the original design direction; release gates are in [docs/release-readiness.md](docs/release-readiness.md).
-
 # Agent Harbor vision
 
-Status: accepted private-product direction as of August 30, 2026; Jinx/Discord
-boundary updated September 14, 2026.
+Status: local-first control plane; **source is public**; signed installers are
+not a current product. Discord/Jinx stay out of this repository.
 
 ## Product promise
 

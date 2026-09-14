@@ -1,10 +1,24 @@
 # Security Policy
 
+The source repository is **public**: [LauraFlorey/agent-harbor](https://github.com/LauraFlorey/agent-harbor).
+There is **no signed installer channel** and **no GitHub Release with binaries**.
+Treat unsigned packages as untrusted artifacts, not a distribution path.
+
 ## Reporting a vulnerability
 
-Please **do not open a public issue** for security problems. Use GitHub's private vulnerability reporting
-for this repository when enabled. If private reporting is unavailable, contact the repository owner privately
-before sharing exploit details.
+Please **do not open a public issue** for security problems.
+
+1. Use [GitHub private vulnerability reporting](https://github.com/LauraFlorey/agent-harbor/security/advisories/new) when it is enabled on this repository.
+2. If that form is unavailable, contact the repository owner privately before sharing exploit details.
+
+Include the app version (`0.1.21` or `git rev-parse HEAD`), OS, and a minimal reproduction. Do not attach access codes, API keys, session files, or private transcripts.
+
+## Out of scope for this repo
+
+- **Discord and Jinx.** That working relationship is out of band. Harbor has no Discord gateway, Jinx bot, or Jinx Memory API. Do not file Harbor issues that require those integrations.
+- **Life OS.** Not implemented here.
+- Same-OS-user processes with unrestricted filesystem or Keychain access. A loopback bearer is not an OS sandbox.
+- Provider-side model behavior, cloud retention, and billing. Those belong to the provider the owner chose.
 
 ## Scope notes for researchers
 
@@ -17,7 +31,7 @@ before sharing exploit details.
   Windows/Linux) and are write-only through the API (`configured` booleans out, never values).
   `config.json` must contain non-secret settings only. Any path that echoes a stored secret back —
   API response, SSE event, log line, argv visible in `ps` — is a vulnerability.
-- Agents run real CLIs (`claude`, `codex`) with the user's own privileges, and the permission broker
+- Agents run real CLIs (`claude`, `codex`, and others) with the user's own privileges, and the permission broker
   is the consent layer for risky actions. Bypasses of the broker (approving without a user decision,
   spoofing the broker socket) are vulnerabilities.
 - Agent and container subprocesses start from a small operating-system environment allowlist rather
@@ -45,17 +59,26 @@ before sharing exploit details.
   details, provider bodies, and tool arguments/results.
 - The OpenRouter Local VM turn owns one exclusive lease through provider
   streaming, approvals, MCP execution, continuation, child-process cleanup,
-  and release. It must never route to the host, cloud computer, connected apps,
+  and release. The turn renews that lease on its own progress
+  (`renewLocalVmTurnLease`). It must never route to the host, cloud computer, connected apps,
   files, dweb, peer agents, a host working directory, or a fallback destination.
   Disabling the global switch must cancel and drain active turns without
   changing stored agent, model, room, or ordinary text-chat settings.
+- Screenshots and docs must not include access codes, keys, or private chats.
+  Older files under `docs/screenshots/` include historical OpenMausBot-era
+  captures; do not treat them as a current threat-model exception.
 
 ## Release boundaries
 
 No analytics SDK or automatic usage/email reporting ships in the app. Public API ingestion keys
 found in older history are not account secrets; any scanner exception must name the exact reviewed finding.
 
-Automatic installer updates are disabled until signing and update provenance are verified. See
-[release-readiness.md](docs/release-readiness.md). Source builds are experimental. Same-OS-user
-processes with unrestricted filesystem or Keychain access are outside the isolation provided by an
-API credential; provider sandboxes and separate OS/container boundaries remain necessary.
+Public **source** is on GitHub. CI runs tests, Linux package smoke, `pnpm audit`, Gitleaks history
+scans, and (on public PRs) dependency review. Automatic installer updates are disabled until
+signing and update provenance are verified. See [release-readiness.md](docs/release-readiness.md).
+Source builds are experimental. Same-OS-user processes with unrestricted filesystem or Keychain
+access are outside the isolation provided by an API credential; provider sandboxes and separate
+OS/container boundaries remain necessary.
+
+A merged pull request is not a signed release. Do not ask testers to disable OS protections
+to run an unsigned package.

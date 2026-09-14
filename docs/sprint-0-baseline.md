@@ -1,7 +1,14 @@
 # Sprint 0 Baseline — Agent Harbor
 
-Status: baseline map as of 30 August 2026. Branch `codex/personal-action-capabilities`, checkpoint `4403d90`.
-Purpose: freeze a trustworthy picture of what exists before Sprint 1 reshapes it. This reconciles the roadmap and `VISION.md` / `ARCHITECTURE.md` against the actual code. Where the code and the docs disagree, the code wins and the gap is named.
+Status: **historical baseline** frozen 30 August 2026 on branch
+`codex/personal-action-capabilities` at `4403d90`. That history is now on
+public `main` (version `0.1.21`). For current product status use
+[ROADMAP.md](../ROADMAP.md), [ARCHITECTURE.md](../ARCHITECTURE.md), and
+[current handoff](plans/current-handoff.md). Do not treat the branch name or
+file counts below as live.
+
+Purpose of this file: freeze a trustworthy picture of what existed before later
+sprints. Where this snapshot and current docs disagree, current docs win.
 
 ## 1. What actually exists today
 

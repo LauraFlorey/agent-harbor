@@ -1,6 +1,6 @@
 # Sprint: Jinx out of Agent Harbor
 
-Status: in progress, 2026-09-14. Docs boundary is on the current PR. Public README now states the Discord split without leading with Jinx.
+Status: docs complete on this PR (`cursor/compare-librechat-2ab7`). Merge to `main` still open. Product decision: Jinx is a working relationship on **Discord**, not a surface inside Agent Harbor.
 
 This is a **boundary sprint**, not a Discord integration and not a memory-product build.
 

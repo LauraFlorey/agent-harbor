@@ -22,7 +22,7 @@ Evidence: `README.md`, `VISION.md`, `ARCHITECTURE.md`, `package.json`, `electron
 
 | Attribute | Current state |
 |---|---|
-| Product | Personal/local-first agent control plane (friends-and-family beta; public source in preparation) |
+| Product | Personal/local-first agent control plane; public source; source-clone beta; no signed installers |
 | Version | `0.1.21` (`package.json`) |
 | Origin | Fork of OpenMausBot; MIT; rebrand keeps `~/.openmausbot` and `OMB_*` for compatibility (`docs/agent-harbor-rebrand.md`) |
 | Runtime | Electron + Vite/React UI + local HTTP/SSE harness on `127.0.0.1` |
@@ -33,7 +33,7 @@ Evidence: `README.md`, `VISION.md`, `ARCHITECTURE.md`, `package.json`, `electron
 | Tests | ~83 Vitest files plus updater/node tests; CI on macOS, Ubuntu, Windows (`.github/workflows/ci.yml`) |
 | Deploy | Source `pnpm dev:all`; unsigned Electron packages; no Docker Compose / Helm for the app itself |
 
-`VISION.md` still records an earlier private-only product decision (“no planned public or open-source Agent Harbor release”). `README.md` and `ARCHITECTURE.md` record a later public-source preparation decision. Treat that mismatch as a docs problem, not as two products.
+Harbor’s source is public on GitHub. Testers clone and run `pnpm dev:all`. Signed installers are a separate, later decision.
 
 ### LibreChat
 
@@ -314,9 +314,9 @@ Harbor’s deployment problem is **signed installers + owner recovery**, not Kub
 | In-repo docs | Strong: architecture, vision, roadmap, security results, beta, computer-use, OpenRouter | Thin in-repo (`docs/` is small); real docs live on librechat.ai |
 | Templates | Bug + feature issue forms; short PR template | Bug, feature, language, Locize access; CoC, funding |
 | Security reporting | GitHub private reporting; detailed threat model in `SECURITY.md` | Private advisory + Discord first-contact; 72h ack target (`.github/SECURITY.md`) |
-| Community | Not a public contributor program per `VISION.md` non-goals | Discord, YouTube, translation program, sponsors |
+| Community | Public source, issue/PR workflow; no support program or signed-installer channel (`VISION.md`, `CONTRIBUTING.md`) | Discord, YouTube, translation program, sponsors |
 
-Harbor’s in-repo docs are a strength (especially the threat model). The weakness is **mixed era language** (private-only vision vs public-source README) and **no single “how testers configure this” page** comparable to LibreChat’s dotenv guide — at Harbor scale, that can be two pages, not a site.
+Harbor’s in-repo docs are a strength (especially the threat model). Keep README, beta-testing, and CONTRIBUTING as the tester path — two pages, not a docs site.
 
 ---
 
@@ -347,7 +347,6 @@ These are places LibreChat is better *and* the improvement would still fit Harbo
 | No UI e2e of chat + approval | Unit tests + one Electron auth smoke; regressions in ChatView/approvals can slip | Playwright mock profile + HITL e2e |
 | Dark-only UI, English-only | Fine for one owner; worse for friends-and-family testers | Themes + locales |
 | Thin public config reference | Testers must assemble `OMB_*` + Keychain + data dir from README paragraphs | `.env.example` + docs site (too large to copy, but the *index* is useful) |
-| Docs era mismatch | `VISION.md` / `ROADMAP.md` / `docs/plans/current-handoff.md` still say private-only | Single public product story |
 | API-only providers | OpenRouter exists; Azure/Bedrock/Ollama-style HTTP is not first-class | Custom endpoints |
 | Context/cost visibility | Runtime events include cost/tokens (`server/contracts.ts`) but the UI is not a LibreChat-style context meter | Context Usage + compaction |
 | Accessibility CI | Keyboard shortcuts exist (`src/App.tsx`); no automated a11y | axe-linter + a11y Playwright |
@@ -420,7 +419,7 @@ Inspired by LibreChat where the *job* matches. Implement in Harbor’s architect
 ## Suggested reading order in this repo after this comparison
 
 1. `README.md` — what testers can actually run.
-2. `VISION.md` + `ARCHITECTURE.md` — intended product (note the public-source banner vs older private-only sentences).
+2. `VISION.md` + `ARCHITECTURE.md` — intended product (public source, Discord/Jinx out of band).
 3. `SECURITY.md` + `docs/security-hardening-results.md` — current threat model.
 4. `ROADMAP.md` — capability calibration vs remaining sprints (instruction stack, assets, recovery).
 5. This file — what to borrow from a mature chat platform without becoming one.

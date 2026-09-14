@@ -1,13 +1,11 @@
-> Public-source preparation: the owner has approved preparing Agent Harbor for a public repository. Personal data and integrations remain private. Earlier private-product language below records the original design direction; release gates are in [docs/release-readiness.md](docs/release-readiness.md).
-
 # Agent Harbor architecture
 
-Status: current architecture map and target boundaries as of August 30, 2026;
-Jinx/Discord boundary updated September 14, 2026.
+Status: current architecture map for public source version **0.1.21**.
+Product boundaries (Discord/Jinx, no signed installers) match
+[VISION.md](VISION.md) and [ROADMAP.md](ROADMAP.md).
 
-This document separates what exists from what the roadmap proposes. The current
-handoff in `docs/plans/current-handoff.md` remains the source for exact branch,
-runtime, and live-acceptance status.
+This document separates what exists on `main` from what the roadmap proposes.
+Exact live-acceptance and PR state: [current handoff](docs/plans/current-handoff.md).
 
 ## System boundary
 
@@ -38,7 +36,9 @@ adapter.
 ## Current implementation
 
 The current application is an Electron desktop shell around a React interface
-and a local harness server:
+and a local harness server. Default loopback ports: API `8799`, UI `5199`,
+webhook ingress `8800`. Auth is a per-server bearer; the desktop injects it over
+IPC, a browser tab uses `pnpm dev:access`.
 
 | Layer | Current location | Responsibility |
 |---|---|---|
@@ -48,6 +48,10 @@ and a local harness server:
 | Harness | `server/harness/` | Provider registry, live instances, turn routing, and the fan-in event bus. |
 | Provider adapters | `server/drivers/` | Normalize local CLI, ACP, OpenRouter, and computer-provider behavior behind shared contracts. |
 | Persistent compatibility state | `~/.openmausbot/` | Current local bot, transcript, event, configuration, and fallback-secret paths. Renaming requires a tested migration. |
+
+Computer destinations (off, isolated Local VM, this computer, cloud Box) are
+per-agent and fail closed as `off`. The in-app Chief of Staff
+(`server/chief-of-staff.ts`) is a generic workspace coordinator.
 
 The canonical runtime types live in `server/contracts.ts`. Unknown providers
 degrade to an unavailable state instead of crashing the fleet. The interface
@@ -87,8 +91,8 @@ today, but the complete typed domain and replayable run ledger are roadmap work.
 The intended instruction order is:
 
 1. Agent Harbor system and security rules
-2. `AGENTS.md`
-3. `USER.md` or `LAURA.md`
+2. `AGENTS.md` (when present)
+3. `USER.md` or owner profile instructions (when present)
 4. agent instructions
 5. project instructions
 6. room instructions
@@ -114,9 +118,10 @@ Material ambiguity fails closed or returns to Laura for clarification.
 - Prompts, model output, MCP servers, copied approval data, and UI automation are
   never approval authorities.
 
-The current branch implements the attended-task routine grant and separate
-consequential pauses for the experimental OpenRouter Local VM path. Broader
-policy compilation and trusted high-risk challenges remain future work.
+`main` implements the attended-task routine grant, exclusive Local VM lease
+(including renewal on turn progress), and separate consequential pauses for the
+experimental OpenRouter Local VM path. Broader policy compilation, trusted
+high-risk challenges, and **live Local VM acceptance** remain open.
 
 ## Security boundaries
 
@@ -166,3 +171,5 @@ must not silently change permission or data-ownership semantics.
   here. Keep `src/`, `server/`, and `electron/` free of Jinx identifiers.
 - The full Local VM browser-action and recovery sequence is not live-accepted.
 - Backup, restoration, rollback, and owner-ready recovery are not complete.
+- Signed installers, notarization, and automatic updates are not established.
+  Source on GitHub is the supported distribution path.
