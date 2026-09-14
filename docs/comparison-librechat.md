@@ -2,7 +2,7 @@
 
 Status: research snapshot against this Agent Harbor checkout (`0.1.21`) and a read-only clone of [danny-avila/LibreChat](https://github.com/danny-avila/LibreChat) at `v0.8.8-rc3` (2026-09-14). This is a comparison for the Agent Harbor owner, not a feature-parity checklist.
 
-LibreChat is a mature, self-hosted, multi-user chat UI that unifies many LLM APIs. Agent Harbor is a smaller, local-first control plane for a personal team of agents, with explicit computer-access policy. The useful question is not “how do we become LibreChat?” It is “which LibreChat practices would make *this* product more dependable without changing what it is?”
+LibreChat is a mature, self-hosted, multi-user chat UI that unifies many LLM APIs. Agent Harbor is a smaller, local-first control plane for a personal team of agents, with explicit computer-access policy. This is not a copy-LibreChat brief. The useful questions are how they attach computers at all, whether agents stall, and what they do about it — then which of those *ideas* (not their stack) overlap Harbor’s lease and timeout problems.
 
 ## How to read this
 
@@ -52,6 +52,72 @@ Evidence: LibreChat `README.md`, `package.json` (`v0.8.8-rc3`), `docker-compose.
 | Agents | First-class but still chat-platform-shaped: marketplace, skills, subagents, MCP, experimental attached workspaces, HITL (`packages/api/src/agents/`, README “What’s New”) |
 | Tests | ~1,300 spec/test files; Playwright e2e, a11y, Lighthouse, Docker smoke, Helm, i18n (`.github/workflows/`, ~30 workflows) |
 | Deploy | `docker-compose.yml`, Helm charts (`helm/librechat`), Railway/Zeabur/Sealos buttons |
+
+---
+
+## Computers and stalling (the actual question)
+
+LibreChat is **not** running a desktop the way Agent Harbor is. They do not have CUA, screenshots/clicks/typing, or a per-bot destination of off / Local VM / this computer / cloud box. Their “computer” story is file-and-shell workers plus a language sandbox. They *are* fighting stall-class failures, but the failures look like quiet HTTP workers, tool-call loops, and lost job leases — not a GUI VM whose exclusive lease expired mid-click.
+
+### How LibreChat attaches computers
+
+Three layers, none of which is Harbor’s model:
+
+| Layer | What it is | Where |
+|---|---|---|
+| **Code Interpreter** | ClickHouse-hosted sandbox: run Python/Node/Go/etc., upload/download files. Isolated language execution, not a desktop. | README; `packages/api/src/utils/code.ts` |
+| **Managed code environments** | Deployment-owned workers the server talks to over HTTP (`type: 'managed'`). | `packages/api/src/code/environments.ts` |
+| **Attached / personal workers** | Highly experimental (v0.8.8-rc3). A user enrolls a worker; LibreChat pairs it (`packages/api/src/code/bridge.ts`) and then lets agents list/read/search/edit files and run Bash in a chosen workspace. README: “inspect trees, read and search files, author changes, and run Bash with bounded timeouts.” | README “What’s New”; `packages/api/src/code/workspace.ts`, `command.ts`; PRs such as [#15352](https://github.com/danny-avila/LibreChat/pull/15352), [#15546](https://github.com/danny-avila/LibreChat/pull/15546) |
+
+A worker reports `offline | starting | ready` and a `leaseExpiresInMs` (`CodeBridgeWorkerStatus` in `packages/api/src/code/bridge.ts`). Pairing and lifecycle calls fail as `timeout` / `busy` / `failed`. Commands are HTTP tools with a **30s default timeout and a 5-minute hard cap** (`WORKSPACE_COMMAND_DEFAULT_TIMEOUT_MS` / `WORKSPACE_COMMAND_MAX_TIMEOUT_MS` in `packages/api/src/code/workspace.ts`; same numbers in `packages/data-provider/src/config.ts`). There is also a 30s queue wait plus a few seconds of transport/settlement grace. A timed-out command is supposed to return `timedOut` on the tool result, not hang the chat forever.
+
+Personal enrollment is capped (`packages/api/src/code/enrollment.ts`, default 5 per user) and can be disabled. Isolation, mounts, and privileged execution are deliberately *not* user-tunable (`codeEnvironmentUserConfigSchema` comment in `packages/data-provider/src/config.ts`).
+
+**Vs Harbor:** Harbor’s destinations are real computers with a GUI/MCP driver — Local VM (`server/container-computer.ts`), this Mac via CUA (`server/local-computer.ts`, macOS-only), cloud Box (`server/box.ts` + `server/remote-computer.ts`). The agent sees screen, clicks, and shell under Harbor-owned approvals. LibreChat’s attached worker is closer to “a remote repo + bash with a deadline.” Their code interpreter is closer to “run this snippet in a jail.” Neither is “drive a desktop.”
+
+### Are they stalling? Yes — and they built a lot of recovery around it
+
+Evidence they treat stalls as a live problem:
+
+- README v0.8.8-rc3: “Strengthened Agent continuation and checkpoint recovery.”
+- Tests named for stalls: “bounds stalled activity and still attempts terminal delivery” (`packages/api/src/agents/subagentThreads.spec.ts`); “bounds a stalled replacement lookup” (`packages/api/src/stream/__tests__/startup.spec.ts`).
+- UI: [PR #15013](https://github.com/danny-avila/LibreChat/pull/15013) “Never Let a Stalled Attachment Disable the Composer.”
+- Infra comment: keep-alive sockets from the code-server path were **killing unrelated requests after idle timeout** (`packages/api/src/utils/code.ts`). That is a real stall/cascade they had to special-case (`keepAlive: false` on dedicated agents).
+- Background tools: dead-claim recovery so a tool whose owner died does not leave the turn waiting forever (`createBackgroundToolDeadClaimRecovery` in `packages/api/src/agents/backgroundCompletionWakeup.ts`, wired from `api/server/services/Endpoints/agents/backgroundCompletion.js`).
+- Triggers/schedules: Mongo leases, heartbeats, retries, and **dead letters** (`packages/api/src/agents/triggers/README.md`). At-least-once delivery; exhausted retries become durable dead letters instead of spinning.
+
+They do **not** appear to have Harbor’s exact “Local VM lease ended before the turn completed” bug, because they do not have that VM. Their equivalent is “the worker went quiet / the generation lease was not renewed / the graph hit recursionLimit with no final answer.”
+
+### How they stop a stall
+
+| Mechanism | What it does | Harbor analogue |
+|---|---|---|
+| **Per-command timeout** | Bash/workspace HTTP dies at 30s (max 5 min). Tool result can say `timedOut`. | Box commands `AbortSignal.timeout(120_000)` (`server/box.ts`). Local VM tool execution 30s, MCP request 20s (`server/tool-turn-control.ts`). |
+| **Turn / graph budget** | LangGraph `recursionLimit`; after a few remaining rounds they inject a “wrap up, stop calling tools” system notice (`packages/api/src/agents/stepBudget.ts`). Hitting the wall mid-turn is called out as “the user waits for a turn that ends without an answer.” | Max 32 tool calls, max 3 repeats, 20 min elapsed turn (`DEFAULT_LOCAL_VM_TOOL_TURN_LIMITS`). No “please finish now” notice to the model. |
+| **Lease + heartbeat** | Event-child generations: 30s TTL, 10s heartbeat. Lost lease **aborts the generation and retries abort until stop is confirmed** (`packages/api/src/agents/triggers/lease.ts`). | Exclusive Local VM turn lease; Sprint C renews it on turn *progress observations* so a healthy long turn is not killed (`server/local-vm-tool-turn.ts` `observe` → `renewLocalVmTurnLease`). Idle VM suspends separately (`server/local-vm-idle.ts`). |
+| **Checkpoint / HITL resume** | Pause for approval, persist LangGraph checkpoint, resume later; resumable streams (optional Redis) so a dropped connection is not a stuck agent (README; `packages/api/src/types/stream.ts`). | Approval wait is in-process (10 min). No cross-restart checkpoint. Interrupt is cancel/cleanup of the current turn. |
+| **Dead claims / dead letters** | Background tool and trigger work that loses its owner is recovered or parked, not left blocking the UI. | Unattended/routines exist (`server/routines.ts`, `server/webhooks.ts`) but there is no dead-letter queue for a wedged Local VM turn. |
+| **Cancel ordinary background tools** | README: optionally cancel background tools, including attached Bash, while detached subagents stay independent. | User can stop a turn; Local VM disable drains active turns (`SECURITY.md`). |
+
+LibreChat’s lease code is built for **many replicas and Redis/Mongo**. Harbor is one desktop process. Copying their job store would be the wrong shape. The portable ideas are: every computer action has a deadline; progress must heartbeat the lease; a quiet worker fails the *tool*, not the whole destination; a model that will loop forever needs an explicit remaining-budget nudge; a lost owner must abort until drain is confirmed.
+
+### How Harbor stalls today (so the comparison is fair)
+
+Harbor’s own docs already name two stall-shaped failures, and they are not LibreChat’s:
+
+1. **Lease expiry mid-turn.** `docs/plans/openrouter-local-vm-tool-loop.md` and `ROADMAP.md` Sprint 0: a later Local VM turn reported **“Local VM lease ended before the turn completed.”** Renewal used to depend on external `touch()`; a long provider/tool wait outlived the TTL. Sprint C heartbeats from the turn’s own observations (`server/local-vm-tool-turn.ts`). Live acceptance of a full browser-action sequence is still outstanding.
+2. **Approval walls that look like stalls.** Over-broad “consequential” matching on argument text (`ROADMAP.md`) paused or refused reversible work. Recalibrated by declared effect, not keywords — again pending live acceptance.
+
+So: LibreChat stalls on **HTTP workers, graphs, and multi-replica job ownership**. Harbor stalls on **exclusive VM leases and approval calibration**. Both use leases + timeouts. Harbor’s problem is harder on the computer-use axis (GUI, exclusive destination, fail-closed routing) and simpler on the distributed-systems axis (no Redis, one owner).
+
+### What is worth stealing as an idea (not as code)
+
+- Keep **tool-level** timeouts so a hung Bash/MCP call cannot be the thing that expires the *computer lease*. LibreChat already separates “this command timed out” from “this worker is gone.”
+- A **remaining-budget nudge** before the hard tool-call cap, so the model writes an answer instead of dying silently at 32 calls (`stepBudget.ts` vs Harbor’s hard `maxToolCalls`).
+- **Abort-until-drained** when a lease is lost (LibreChat retries abort every 250ms until stop is confirmed). Harbor already aborts the turn controller; confirming MCP/child drain the same way is the close analogue.
+- Treat **offline workers** as a visible destination state (LibreChat’s `offline | starting | ready`), not as a hang. Harbor already has instance snapshots and engine-setup UI; computer destinations could use the same honesty.
+
+Do not steal: Redis GenerationJobManager, Mongo trigger leases, LangGraph checkpointers, or pairing a generic “code worker” as a substitute for the Local VM / Box / host destinations.
 
 ---
 
@@ -141,7 +207,7 @@ Harbor’s adapter rule is explicit: providers, MCP, computers, and environments
 | Peer agents | Harness-owned `ask_bot` / `delegate-bot` with recursion limits (`server/index.ts` `/api/internal/*`, `server/delegations.ts`) | Subagents with isolated context (`packages/api/src/agents/subagent*.ts`) |
 | MCP | Stdio client with schema/size/tool-count limits, guardian process, approval-gated execution (`server/mcp-client.ts`, `server/mcp-guardian.ts`) | Large MCP registry, OAuth, Redis cache, YAML servers (`packages/api/src/mcp/`, ~142 files) |
 | Approvals | Application-owned channel: no self-approval, no prompt/MCP as authority, routine vs consequential, redaction (`server/tool-approval.ts`, `SECURITY.md`) | HITL Ask/Allow/Deny; endpoint YAML is the kill switch; agent/skills layers reserved and not merged yet (`packages/api/src/agents/hitl/policy.ts`) |
-| Computers | Explicit per-bot destination; Local VM lease + heartbeat + exclusive routing (`server/local-vm-lease.ts`, `server/container-computer.ts`) | Experimental attached workspaces; ClickHouse code interpreter for sandboxed languages |
+| Computers | Explicit per-bot destination; Local VM lease + heartbeat + exclusive routing (`server/local-vm-lease.ts`, `server/container-computer.ts`) | Experimental attached workspaces + ClickHouse interpreter: file/shell workers, not a GUI desktop. See [Computers and stalling](#computers-and-stalling-the-actual-question) |
 | Connected apps | Composio catalog in-app (`src/components/PluginsPanel.tsx`, `server/composio.ts`) | OpenAPI actions, MCP, plugins, SharePoint, etc. |
 | Scheduling | Routines + authenticated webhooks (`server/routines.ts`, `server/webhooks.ts`, `server/webhook-ingress.ts`) | Experimental schedules gated on Redis/checkpointer (`librechat.example.yaml`) |
 
@@ -318,6 +384,7 @@ Inspired by LibreChat where the *job* matches. Implement in Harbor’s architect
 | P1.7 | **Owner-editable MCP server list** (stdio only, secrets in Keychain, never in args — already required in `server/contracts.ts`). | Today MCP is mostly an internal computer/agent bridge. LibreChat shows owners want to attach tools. Stay stdio + approval-gated. | M | `librechat.yaml` MCP, as a Settings panel, not OAuth/Redis. |
 | P1.8 | **Thread compaction as a Harbor action** (summarize-only turn, preserve recent leaf). | Long specialist threads will hit CLI context limits. | M | LibreChat manual compaction; Harbor should treat summary as untrusted evidence (`ARCHITECTURE.md`). |
 | P1.9 | **Accessibility pass** on composer, approval card, and sidebar (labels, focus, contrast), plus a cheap lint or Playwright a11y spec. | Approvals are a security surface; they must be operable. | M | LibreChat a11y CI, scoped to Harbor’s few screens. |
+| P1.10 | **Stall calibration, not a job queue.** (1) Fail a hung *tool* before the computer *lease* expires. (2) Nudge the model before `maxToolCalls`. (3) Abort-until-drained on lease loss. | Harbor’s stall is lease/approval, not Redis. LibreChat already separates command timeout from worker death (`packages/api/src/code/workspace.ts`, `stepBudget.ts`, event-child lease abort retry). | M | Keep `server/tool-turn-control.ts` + `local-vm-lease.ts`; do not add GenerationJobManager. |
 
 ### P2 — only if the product decision changes
 
