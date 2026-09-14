@@ -137,4 +137,6 @@ Still ahead:
   names them.
 - Prepared, committed, pushed, merged, packaged, installed, recovery-tested, and
   live-accepted are different states.
-- Public-release work does not resume without a new explicit product decision.
+- Public **source** is already on GitHub. Signed installers, automatic updates,
+  and a GitHub Release with binaries still need an explicit decision. A merged
+  PR is not that release.

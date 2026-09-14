@@ -1,10 +1,37 @@
 # Agent Harbor
 
+[![CI](https://github.com/LauraFlorey/agent-harbor/actions/workflows/ci.yml/badge.svg)](https://github.com/LauraFlorey/agent-harbor/actions/workflows/ci.yml)
+
 A local-first **control plane** for a personal team of AI agents: conversations, tasks, rooms, and explicit policy over each agent's computer access.
 
 This project **started as a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot)**. It is maintained independently by Laura Florey. OpenMausBot remains a separate product; Agent Harbor is not a drop-in replacement, a Grok Bot clone, or a hosted chat platform.
 
 Agent Harbor has no cryptocurrency or token affiliation.
+
+![Agent Harbor workspace](docs/screenshots/hero.png)
+
+## Install (run from source)
+
+This is the supported way to try Agent Harbor. There are **no signed installers** yet. You need [Node.js 24+](https://nodejs.org/) and [pnpm 10.33.0](https://pnpm.io/installation), plus Git.
+
+```sh
+git clone https://github.com/LauraFlorey/agent-harbor.git
+cd agent-harbor
+pnpm install --frozen-lockfile
+pnpm dev:all
+```
+
+That starts the harness, the interface, and the Electron app. Closing the window or Control-C stops the stack.
+
+The desktop app authenticates itself. You can chat with an **OpenRouter API key** (App Settings) without installing a provider CLI. For Claude or Codex, install that CLI and sign in through it. The first run with no engine installed looks like this:
+
+![First run: install an AI engine](docs/screenshots/workspace.png)
+
+A separate browser tab needs an access code, shown only when you run `pnpm dev:access`. Paste it into the local UI. It lives in tab memory and dies when the server restarts. Do not share it.
+
+Default loopback ports: API `8799`, UI `5199`, webhook ingress `8800`. `OMB_PORT`, `OMB_DATA_DIR`, and `AGENT_HARBOR_DEV_PORT` isolate extra instances. If you start processes separately, set `OMB_UI_ORIGIN` on the server to the exact UI origin (default `http://127.0.0.1:5199`).
+
+Start with computer access and host-folder access **off**. Provider usage can cost money. Step-by-step tester notes: [beta testing guide](docs/beta-testing.md).
 
 ## What it is
 
@@ -13,13 +40,14 @@ Agent Harbor has no cryptocurrency or token affiliation.
 - Approvals, leases, and fail-closed routing in application code — not in the prompt.
 - Direct chats, shared rooms, tasks, optional routines and webhooks.
 
-Jinx is **not** part of Agent Harbor. That working relationship lives on Discord. Harbor does not host her memory, personality, or Chief of Staff role.
-
 ## What it is not
 
 - Not OpenMausBot's messaging-app roadmap (mobile clients, hosted fleet, team marketplace).
-- Not LibreChat: Harbor is not a multi-user ChatGPT-style web service.
-- Not a knowledge base, CRM, or Life OS. Those stay other apps if they exist at all.
+- Not a multi-user ChatGPT-style web service (see [LibreChat comparison](docs/comparison-librechat.md) if you need that distinction).
+- Not a Discord bot, knowledge base, CRM, or Life OS.
+- Not a signed, auto-updating desktop product yet.
+
+Jinx is a Discord working relationship, not part of this application.
 
 ## Origin and attribution
 
@@ -27,32 +55,9 @@ Forked from OpenMausBot at the start of this repository. The MIT license and ups
 
 Harbor last reviewed upstream at OpenMausBot `0.1.21` (2026-08-16). Later OpenMausBot releases are a different product line (Apache-2.0 + `enterprise/`, Android/iOS, hosted workspaces). See [recent upstream notes](docs/upstream-openmausbot-recent.md) if you need that delta; do not treat it as a merge checklist.
 
-## Run from source
-
-Node.js 24+ and pnpm 10.33.0. Clone this repository, open a terminal in its folder, then:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm dev:all
-```
-
-That starts the harness, the interface, and the Electron app. Closing the window or Control-C stops the stack. Default loopback ports: API `8799`, UI `5199`, webhook ingress `8800`.
-
-You can chat with an OpenRouter API key without installing a provider CLI. For Claude or Codex, install that CLI and sign in through it.
-
-The desktop app authenticates itself. A separate browser tab needs an access code, shown only when you run:
-
-```sh
-pnpm dev:access
-```
-
-Paste it into the local UI. It lives in tab memory and dies when the server restarts. Do not share it.
-
-`OMB_PORT`, `OMB_DATA_DIR`, and `AGENT_HARBOR_DEV_PORT` isolate extra instances. If you start processes separately, set `OMB_UI_ORIGIN` on the server to the exact UI origin (default `http://127.0.0.1:5199`).
-
 ## Beta status
 
-**No publicly trusted, signed installers yet.** Mac test packages are ad-hoc signed and not notarized; Windows test installers are unsigned. Automatic updates are off. Source setup does not need a paid Apple or Microsoft developer account.
+**Source on GitHub is public. Trusted installers are not.** Mac test packages are ad-hoc signed and not notarized; Windows test installers are unsigned. Automatic updates are off. You do not need a paid Apple or Microsoft developer account to run from source.
 
 | Capability | Apple Silicon Mac | Windows x64 |
 |---|---|---|
@@ -61,9 +66,9 @@ Paste it into the local UI. It lives in tab memory and dies when the server rest
 | Direct control and preview of this computer | Explicit permissions; experimental | Not supported |
 | Local VM, cloud computers, connected apps, scheduling | Optional; extra setup | Optional; extra setup |
 
-Intel Macs and Windows on ARM are not validated. You supply your own provider account; usage can cost money. Start with computer access and host-folder access **off**. See the [beta testing guide](docs/beta-testing.md).
+Intel Macs and Windows on ARM are not validated. Unsigned packages may warn or be blocked. Do not turn off system protections to participate. [Apple](https://support.apple.com/102445) · [Microsoft Smart App Control](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview).
 
-Unsigned packages may warn or be blocked. Do not turn off system protections to participate. [Apple](https://support.apple.com/102445) · [Microsoft Smart App Control](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview).
+A merged pull request is not a GitHub Release. There is no versioned installer channel yet.
 
 ## Permissions
 
@@ -90,7 +95,7 @@ pnpm check:server-package
 pnpm audit --audit-level=moderate
 ```
 
-CI runs tests and packaging on macOS, Ubuntu, and Windows, plus dependency and history-secret scans.
+CI runs tests and packaging on macOS, Ubuntu, and Windows, plus dependency and history-secret scans. Changes land through pull requests into `main`. See [Contributing](CONTRIBUTING.md).
 
 ## Deployment
 
@@ -100,8 +105,7 @@ Source is the supported path while signing is deferred. Package scripts use `--p
 
 - [Architecture](ARCHITECTURE.md) · [Vision](VISION.md) · [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
-- Next sprint: [Jinx out of Harbor](docs/plans/jinx-out-of-harbor.md)
-- Research only: [LibreChat comparison](docs/comparison-librechat.md)
+- [Screenshots](docs/screenshots/README.md) · [Jinx / Discord boundary](docs/plans/jinx-out-of-harbor.md)
 
 ## License
 

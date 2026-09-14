@@ -18,14 +18,13 @@ remains the authority for what an agent may do.
 
 ## Product scope
 
-Agent Harbor is a private personal application. It is optimized for Laura's
-actual devices, agents, records, clients, and workflows. There is no planned
-public or open-source Agent Harbor release. Public branding, contributor
-onboarding, generalized support promises, and release marketing remain out of
-scope unless Laura explicitly changes that decision.
+Agent Harbor's **source is public** on GitHub. It is still a personal-scale
+product: Laura's devices, agents, and workflows are the design center. There
+is no support program, no signed installer channel, and no hosted multi-user
+service. Those remain out of scope until an explicit decision.
 
-The MIT license and OpenMausBot attribution are retained because they describe
-the project's origin; they are not a public-launch commitment.
+The MIT license and OpenMausBot attribution describe the project's origin.
+Public source does not mean a marketed desktop release.
 
 ## Ecosystem
 
@@ -95,7 +94,7 @@ Agent Harbor is not:
 - a credential dump handed to a model;
 - a permission system implemented only through prompts;
 - dependent on one model provider, cloud, protocol, or sandbox; or
-- a public product with a contributor or support program.
+- a signed-installer product with a support program.
 
 ## What success means
 
