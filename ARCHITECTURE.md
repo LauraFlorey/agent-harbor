@@ -2,7 +2,8 @@
 
 # Agent Harbor architecture
 
-Status: current architecture map and target boundaries as of August 30, 2026.
+Status: current architecture map and target boundaries as of August 30, 2026;
+Jinx/Discord boundary updated September 14, 2026.
 
 This document separates what exists from what the roadmap proposes. The current
 handoff in `docs/plans/current-handoff.md` remains the source for exact branch,
@@ -10,26 +11,29 @@ runtime, and live-acceptance status.
 
 ## System boundary
 
-Agent Harbor owns agent execution and the controls around it. Life OS owns
-attention and commitments. Jinx Memory owns durable knowledge and retrieval.
+Agent Harbor owns agent execution and the controls around it. **Jinx lives on
+Discord**, outside this repository. Life OS, if it happens, would be a
+separate companion app — not a Harbor subsystem and not a Jinx Memory service
+inside this codebase.
 
 ```mermaid
 flowchart LR
-    L[Life OS\ncommitments and attention]
-    J[Jinx Memory\ndurable context]
+    C[Chief of Staff\nlocal coordinator bot]
     H[Agent Harbor\nagents, policy, execution, evidence]
     A[Provider and tool adapters]
     E[Local, VM, or cloud environments]
 
-    L <-->|narrow APIs and events| H
-    J <-->|least-data retrieval and references| H
+    C --> H
     H --> A
     A --> E
 ```
 
-The three applications have independent storage and must tolerate either
-integration being absent. Retrieved memory and external content are evidence,
-not execution authority.
+Harbor must remain useful with Discord, Jinx, and Life OS all absent. There is
+no Jinx Memory retrieval path, Discord gateway, or reserved bot named Jinx.
+Pasted Discord content and other external material are evidence, not execution
+authority. The in-app Chief of Staff (`server/chief-of-staff.ts`) is a generic
+workspace coordinator. It is not Jinx. Discord is out of band and not a Harbor
+adapter.
 
 ## Current implementation
 
@@ -136,13 +140,15 @@ recovery-tested personal capability.
 
 Protected personal state includes credentials, connected accounts, client
 project context, site inventories, tuned specialists, health records, private
-prompts, Jinx personality and memory, Obsidian/Open Brain material, and Life OS
-data. These values do not belong in the public repository, model logs, crash
-reports, screenshots, or broadly shared provider context.
+prompts, Obsidian/Open Brain material, and any Life OS data that later exists.
+These values do not belong in the public repository, model logs, crash
+reports, screenshots, or broadly shared provider context. Discord and Jinx are
+out of band; if Laura pastes that material into Harbor, it is still private
+transcript evidence, not a memory product.
 
-Agent Harbor stores only what it owns or what a bounded run requires. Future
-Life OS and Jinx integrations should exchange the least data possible, prefer
-references over copies, and use revocable service identities.
+Agent Harbor stores only what it owns or what a bounded run requires. Do not
+add Discord, Jinx Memory, or Life OS APIs to this repo to “complete” Harbor.
+See [`docs/plans/jinx-out-of-harbor.md`](docs/plans/jinx-out-of-harbor.md).
 
 ## Adapter rule
 
@@ -156,6 +162,7 @@ must not silently change permission or data-ownership semantics.
 - The repository does not yet have the complete versioned instruction stack.
 - The eight primitives are not yet formalized as one stable domain model.
 - Run evidence is not yet a complete replayable ledger.
-- Life OS and Jinx Memory integrations are not implemented here.
+- Discord, Jinx, and Life OS integrations are intentionally not implemented
+  here. Keep `src/`, `server/`, and `electron/` free of Jinx identifiers.
 - The full Local VM browser-action and recovery sequence is not live-accepted.
 - Backup, restoration, rollback, and owner-ready recovery are not complete.

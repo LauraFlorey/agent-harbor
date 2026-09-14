@@ -45,7 +45,7 @@ new time limits.
 
 ### Not in scope
 
-- Jinx integration or changes of any kind.
+- Jinx, Discord, or Life OS integration or changes of any kind.
 - Silent access to this Mac, a cloud computer, connected apps, files, or peer
   agents.
 - Automatic Facebook sign-in, credential entry, CAPTCHA handling, or attempts

@@ -131,7 +131,7 @@ These are different products that happen to share “talk to an LLM in a browser
 | Audience | One owner on their machines | Many users on a deployment | Multi-user ACL, balances, admin, SSO are LibreChat’s job. |
 | Trust boundary | Runtime + approvals; models are untrusted | Deployment + roles + tenant isolation; models are mostly HTTP APIs | Harbor’s hard problem is *what the agent may do on a computer*. LibreChat’s is *who may use which model/file in a hosted service*. |
 | Where work runs | Local CLI process, isolated Local VM, cloud computer, or host (opt-in) | Server-side tool calls, sandboxed code interpreter, experimental attached workspaces | Copying LibreChat’s hosted interpreter does not replace Harbor’s destination model. |
-| Knowledge | Explicitly **not** owned here; Jinx Memory is a separate app (`VISION.md`, `ARCHITECTURE.md`) | Built-in RAG API + file search + memories | Harbor should not grow a second memory product unless Jinx is abandoned. |
+| Knowledge | Explicitly **not** owned here. Jinx lives on Discord; Harbor has no Jinx Memory API (`VISION.md`, `ARCHITECTURE.md`) | Built-in RAG API + file search + memories | Harbor should not grow a memory product to “complete” the control plane. |
 | Shipping form | Desktop app, loopback API, unsigned packages for now | Always-on web service, containers, k8s | Docker/Helm are table stakes for LibreChat and optional-at-best for Harbor. |
 | Config style | Small `config.json` + Keychain + a handful of `OMB_*` env vars | 1,400+ line `.env.example` + 1,300+ line `librechat.example.yaml` | Harbor’s constraint is *few, owner-visible knobs*. |
 | Privacy default | No analytics SDK; profile stays local (`README.md`, `docs/security-hardening-results.md`) | Optional OTel, Langfuse, RUM, Insights | Adding hosted telemetry would contradict Harbor’s privacy claim. |
@@ -221,7 +221,7 @@ Harbor’s MCP path is narrower (stdio, turn-scoped, fail-closed) and more tight
 
 - Composer attachments are either long pastes inlined as `<pasted-text>` or **path chips** (`<attached-file path="…"/>`) for Electron-dropped files (`src/lib/composer-attachments.ts`).
 - There is no upload store, no embeddings, no “chat with this PDF” pipeline, and no in-app conversation search (no matches in `src/` for message search).
-- Architecture assigns durable knowledge to **Jinx Memory**, not to Harbor (`ARCHITECTURE.md`).
+- Architecture assigns durable knowledge **outside** Harbor. Jinx lives on Discord; there is no Jinx Memory retrieval path (`ARCHITECTURE.md`, `VISION.md`).
 
 **LibreChat today**
 
@@ -230,7 +230,7 @@ Harbor’s MCP path is narrower (stdio, turn-scoped, fail-closed) and more tight
 - Conversation search via Meilisearch; memories routes (`api/server/routes/search.js`, `memories.js`).
 - Import from LibreChat / ChatGPT / Chatbot UI; export screenshot/markdown/text/json (README).
 
-**Fair takeaway:** Harbor should not stand up Meilisearch + pgvector to “catch up.” It *should* make files and history usable for a single owner: land dropped files in the agent workspace, search local transcripts, and export/backup the data directory. Retrieval beyond that belongs with Jinx, or with a later explicit decision to own knowledge here.
+**Fair takeaway:** Harbor should not stand up Meilisearch + pgvector to “catch up.” It *should* make files and history usable for a single owner: land dropped files in the agent workspace, search local transcripts, and export/backup the data directory. Retrieval beyond that stays out of Harbor unless Laura later decides to own knowledge here as a separate product (not as a Jinx Memory API).
 
 ---
 
@@ -392,7 +392,7 @@ Inspired by LibreChat where the *job* matches. Implement in Harbor’s architect
 |---|---|---|
 | P2.1 | i18n | One-owner English app; Locize-scale translation is LibreChat community overhead. |
 | P2.2 | Artifacts / sandpack / image generation | Chat-platform features; Harbor’s equivalent is “the agent did it on a computer.” |
-| P2.3 | Built-in vector RAG | Conflicts with Jinx Memory ownership. Revisit only if Jinx is cancelled. |
+| P2.3 | Built-in vector RAG | Jinx is on Discord, not a Harbor knowledge layer. RAG would still be a new product inside the control plane — do not add it to “complete” Harbor. |
 | P2.4 | Docker Compose / Helm for a hosted Harbor | Changes the threat model (bind 0.0.0.0, multi-user, reverse proxy). Would need a *new* auth story. |
 | P2.5 | SSO, LDAP, token balances, admin panel | Multi-tenant product. Out of scope in `VISION.md`. |
 | P2.6 | Default OTel/Langfuse | Conflicts with the no-analytics privacy claim unless strictly local and opt-in. |

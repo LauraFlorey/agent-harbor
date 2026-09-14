@@ -82,7 +82,7 @@ Worth reading the PRs; still implement in Harbor’s architecture.
 | **Usage ledger + channel spend cap** ([#1052](https://github.com/milind-soni/OpenMausBot/pull/1052), [#1135](https://github.com/milind-soni/OpenMausBot/pull/1135)) | Harbor has cost on `turn.completed` but no ledger UI (comparison P1.4). |
 | **Per-bot MCP + guided setup** ([#956](https://github.com/milind-soni/OpenMausBot/pull/956)) | Harbor MCP is mostly an internal computer/agent bridge (comparison P1.7). |
 | **Thread-aware bots / #thread chips** (0.1.70) | Harbor has tasks (separate threads per bot) but not this navigation model. |
-| **Skills as saved runs** (0.1.71–0.1.72) | Out of Harbor scope unless Jinx/instruction-stack sprint says so. |
+| **Skills as saved runs** (0.1.71–0.1.72) | Out of Harbor scope unless an instruction-stack sprint says so. |
 | **Channels / BotMRR markdown team import** (README) | Harbor already has team manifests (`server/team-manifest.ts`); their Markdown+YAML playbooks are a richer cousin. |
 | **Stdio MCP control plane for Cursor/Claude Desktop** (README) | Harbor has `/api/internal` for peer agents; exposing a bounded MCP of the *harbor itself* is a different product. |
 

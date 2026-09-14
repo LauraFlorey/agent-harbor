@@ -2,6 +2,12 @@
 
 Updated August 30, 2026 after confirming the private personal-product scope.
 
+**September 14, 2026:** Jinx is a Discord working relationship, not a Harbor
+surface. Do not add Jinx Memory APIs, a Discord gateway, or a reserved bot named
+Jinx. The in-app Chief of Staff stays a generic local coordinator. Next sprint
+plan: [`jinx-out-of-harbor.md`](jinx-out-of-harbor.md). The August 30 branch and
+runtime notes below are historical for that checkpoint.
+
 ## Executive status
 
 - **Repository:** `/Users/lauraflorey/projects/agent-harbor`
@@ -118,10 +124,11 @@ remains completely outside this repository and handoff.
 ## Current product direction
 
 Agent Harbor is the private control plane for Laura's agents, permissions,
-tools, environments, collaboration, approvals, and run evidence. Life OS and
-the Jinx Memory System remain separate applications that may integrate through
-explicit APIs and events. Jinx may be the Chief of Staff personality across
-the ecosystem, but neither Jinx nor Life OS may bypass Harbor's policy engine.
+tools, environments, collaboration, approvals, and run evidence. **Jinx works
+with Laura on Discord**, not inside this app. Life OS, if it happens, is a
+later separate companion — not a Jinx Memory service in this repo. Neither
+Discord nor a future Life OS may bypass Harbor's policy engine. The in-app
+Chief of Staff is a generic workspace coordinator, not Jinx.
 
 Public branding, contributor onboarding, generalized support promises, public
 release signing, and open-source launch work are indefinitely deferred unless

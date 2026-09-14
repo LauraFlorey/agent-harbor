@@ -2,7 +2,7 @@
 
 # Agent Harbor roadmap
 
-Status: private personal roadmap — revision 0.4, reconciled against the actual codebase on August 30, 2026.
+Status: private personal roadmap — revision 0.5, Jinx/Discord boundary updated September 14, 2026 (base still August 30, 2026).
 
 ## Current checkpoint
 
@@ -21,8 +21,10 @@ Status: private personal roadmap — revision 0.4, reconciled against the actual
   (click, scroll, type, interruption, cleanup, Computer Off, rollback) is still
   unaccepted, and two mechanisms currently choke real action — see the Sprint 0
   finding below.
-- Life OS and Jinx Memory remain separate and unchanged. No public or open-source
-  release is planned.
+- **Jinx stays on Discord.** She is not a Harbor surface. Sprint 8 (Life OS and
+  Jinx Memory APIs) is **cancelled** as a Harbor milestone. See
+  [`docs/plans/jinx-out-of-harbor.md`](docs/plans/jinx-out-of-harbor.md).
+- Life OS, if it happens, is a later separate app — not the next sprint.
 
 ## Sprint 0 finding: the problem is capability, not controls
 
@@ -105,18 +107,22 @@ Still ahead:
 | 3 | Models, capabilities, and assets | One agent changes providers without changing identity, and scoped assets do not leak between contexts. |
 | 5 | Web and security monitoring | Approved targets produce meaningful changed findings without noisy output or credential exposure. |
 | 6 | Rooms and collaboration | Specialists retain distinct instructions and share only authorized context and evidence. |
-| 8 | Life OS and Jinx Memory APIs | A narrow end-to-end flow works while every application also remains operable alone. |
+| 8 | Life OS and Jinx Memory APIs | **Cancelled.** Jinx stays on Discord; Harbor will not add those APIs to complete the control plane. |
 | 9 | Execution-environment adapters | Local and VM implementations satisfy the same Harbor-owned lifecycle and security contract. |
 | 10 | Personal reliability, recovery, and continuity | Laura can install or start a known-good checkpoint, back up required state, restore it, and roll back without losing required private data. |
 
 ## Immediate sequence
 
-1. Land Sprint C: recalibrate the consequential gate and heartbeat the lease, guarded
-   by the existing security suite plus one new "agent completed a real task" check.
-2. Run one controlled, non-sensitive end-to-end Local VM task as the acceptance evidence.
-3. Only then formalize the turn-grained run ledger (Sprint 1 remainder); retention and
+1. **Jinx out of Harbor (docs + product boundary)** — this change. README, vision,
+   architecture, and roadmap state that Jinx lives on Discord. Keep the in-app
+   Chief of Staff as a generic coordinator. Do not add Discord or memory APIs.
+   Details: [`docs/plans/jinx-out-of-harbor.md`](docs/plans/jinx-out-of-harbor.md).
+2. **Local VM live acceptance** (Sprint C remainder): one real reversible task, no
+   spurious approval wall, no mid-turn lease abort.
+3. **Owner backup/restore** of `~/.openmausbot` (Sprint 10 slice). Discord is where
+   Jinx lives; Harbor still needs recoverable *agent* state.
+4. Only then formalize the turn-grained run ledger (Sprint 1 remainder); retention and
    export follow as a separate pass.
-4. Decide explicitly whether the branch merges into private `main`.
 5. Preserve a known-good personal checkpoint before replacing the working installation.
 
 ## Standing boundaries
@@ -124,8 +130,11 @@ Still ahead:
 - Capability and controls advance together; neither ships alone, and controls are
   calibrated to the real risk of the action, not to keyword coincidence.
 - One security-sensitive story at a time.
-- Jinx, Life OS, live client systems, and later sprints remain out of scope unless the
-  active story names them.
+- Jinx works with Laura on Discord. Harbor does not add a Discord bot, Jinx Memory
+  API, or Life OS integration unless a new explicit decision names them. The in-app
+  Chief of Staff is a generic local coordinator, not Jinx.
+- Live client systems and later sprints remain out of scope unless the active story
+  names them.
 - Prepared, committed, pushed, merged, packaged, installed, recovery-tested, and
   live-accepted are different states.
 - Public-release work does not resume without a new explicit product decision.

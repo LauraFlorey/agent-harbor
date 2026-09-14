@@ -49,7 +49,7 @@ the exact owned process tree before restarting anything.
 
 The Local VM is a separate, explicitly prepared Docker-backed destination.
 Starting the development runtime must not start, stop, recreate, or repair
-Docker. Jinx is a separate application and is never part of an Agent Harbor
+Docker. Jinx works with Laura on Discord and is never part of an Agent Harbor
 deployment or cleanup operation.
 
 ## Required verification before personal packaging

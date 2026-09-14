@@ -2,7 +2,8 @@
 
 # Agent Harbor vision
 
-Status: accepted private-product direction as of August 30, 2026.
+Status: accepted private-product direction as of August 30, 2026; Jinx/Discord
+boundary updated September 14, 2026.
 
 ## Product promise
 
@@ -26,21 +27,29 @@ scope unless Laura explicitly changes that decision.
 The MIT license and OpenMausBot attribution are retained because they describe
 the project's origin; they are not a public-launch commitment.
 
-## The three-application ecosystem
+## Ecosystem
 
-Agent Harbor, Life OS, and the Jinx Memory System are separate applications.
-Each must remain useful without the other two.
+Agent Harbor is the **control plane**: rooms, bots, tasks, policy, and computer
+destinations. It must remain useful with Discord, Jinx, and Life OS all absent.
 
-| Application | Owns | Does not own |
+**Jinx** is a working relationship Laura has on **Discord**. She is not a Harbor
+surface, not a reserved bot name, and not a memory API this repository should
+grow. The in-app **Chief of Staff** is a generic local coordinator for the
+workspace team. It is not Jinx and must not be renamed or wired to Discord.
+
+**Life OS** remains a possible *separate* companion app (calendar, todos,
+knowledge). It is not the next sprint and does not imply a Jinx Memory service
+inside Harbor. If it exists later, Harbor would consume narrow APIs — it would
+not embed Life OS UI or share a database.
+
+| Surface | Owns | Does not own |
 |---|---|---|
-| Life OS | Projects, tasks, commitments, briefings, and attention | Agent execution policy or durable memory |
-| Agent Harbor | Agents, models, instructions, tools, assets, rooms, environments, approvals, and run evidence | Life management or long-term personal knowledge |
-| Jinx Memory System | Durable knowledge, preferences, relationships, history, retrieval, and sensitivity labels | Agent execution authority or operational commitments |
+| Agent Harbor | Agents, models, instructions, tools, assets, rooms, environments, approvals, and run evidence | Discord, Jinx, life management, or a long-term personal knowledge product |
+| Discord + Jinx | The working relationship with Jinx | Agent execution policy, computer destinations, or Harbor state |
+| Life OS (possible, later) | Projects, commitments, briefings, and attention | Agent execution authority |
 
-Jinx may eventually become Laura's Chief of Staff interface across the
-ecosystem. In that role, Jinx can ask Life OS what needs attention, Jinx Memory
-what context matters, and Agent Harbor which specialist should act. Jinx does
-not become a fourth platform and cannot bypass Agent Harbor's policy engine.
+Facts Jinx already knows reach Harbor only when Laura pastes or files them.
+Pasted Discord content is evidence, not execution authority.
 
 ## Principles
 
@@ -57,8 +66,9 @@ not become a fourth platform and cannot bypass Agent Harbor's policy engine.
 6. **Private state stays private.** Credentials, health records, client context,
    tuned specialists, sensitive prompts, and personal source material receive
    explicit protection.
-7. **The applications remain independent.** Integrations use narrow APIs,
+7. **Harbor remains independent.** Optional later companions use narrow APIs,
    events, references, and revocable identities rather than shared databases.
+   Discord and Jinx stay out of this repository.
 8. **Evidence outranks deadlines.** A capability is described as working only
    after the relevant path has actually been observed.
 
@@ -80,7 +90,8 @@ Agent Harbor is not:
 
 - a single autonomous super-agent;
 - Life OS, a CRM, or a general project-management system;
-- a long-term knowledge base that replaces Jinx Memory;
+- a Discord client, Jinx bot, or Jinx Memory API;
+- a long-term knowledge base or Life OS inside this app;
 - a credential dump handed to a model;
 - a permission system implemented only through prompts;
 - dependent on one model provider, cloud, protocol, or sandbox; or

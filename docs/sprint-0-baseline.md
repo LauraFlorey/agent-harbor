@@ -88,7 +88,7 @@ Confirms the six gaps already listed in `ARCHITECTURE.md`, and adds specifics:
 - **`server/index.ts` is a ~2,900-line monolith** — the single biggest structural residue; per-resource command modules would make Sprint 1 safer.
 - **The 8 primitives are not yet one formal typed domain** (`contracts.ts` is runtime types, not the stable domain).
 - **No replayable run ledger** (events + transcripts exist; immutable versioned records + redacted summaries do not).
-- **Life OS and Jinx Memory integrations are not implemented here** (correct — they are separate apps).
+- **Life OS and Discord/Jinx integrations are not implemented here** (correct — and not planned as Harbor APIs).
 - **The full Local VM browser-action + recovery sequence is not live-accepted**; the roadmap's lease-ended error is unresolved against the current implementation.
 - **Backup / restore / rollback / owner-ready recovery are not complete.**
 
